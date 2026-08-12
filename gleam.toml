@@ -1,0 +1,19 @@
+name = "acuttis_point"
+version = "0.1.0"
+target = "javascript"
+
+description = "Headless timekeeping automation for Acuttis"
+licences = ["MIT"]
+repository = { type = "github", user = "v1cferr", repo = "acuttis-point" }
+links = [{ title = "Tracking issue", href = "https://v1cferr.atlassian.net/browse/V1C-73" }]
+
+# Playwright lives in the Node ecosystem, so the domain logic compiles to
+# JavaScript and reaches it through a thin FFI layer.
+[javascript]
+runtime = "nodejs"
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+
+[dev_dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
