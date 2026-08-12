@@ -13,10 +13,15 @@ decision rules, the Playwright adapter, the run record, and a NixOS service
 and timer. One thing is still missing before it can register a punch —
 `PUNCH_LIST_SELECTOR`, see [Finding the punch selectors](#finding-the-punch-selectors).
 
-What has actually been exercised against the live site: reaching
-`/dashboard` and being redirected to `/signin`, filling and submitting the
-sign-in form, and recognising a rejected sign-in. Everything behind the
-login is written but unverified, as is the systemd side.
+Verified against the live site: reaching `/dashboard` and being redirected to
+`/signin`, filling and submitting the sign-in form, and recognising a rejected
+sign-in.
+
+Verified against a local fixture that imitates the Acuttis shape: signing in,
+reading the day, registering a punch, reading it back, and every failure path
+in between. That fixture is only as good as this project's model of Acuttis,
+so the punch interface behind the login remains unconfirmed — as does the
+systemd side.
 
 ## Design
 
@@ -90,11 +95,20 @@ gleam test
 gleam run
 ```
 
+`gleam test` runs everything, including the end-to-end tests that launch
+Chromium against a local fixture — around 35 seconds in total. Those live in
+`test/acuttis_point/e2e_test.gleam` and the fixture in `test/support/`.
+
 ## Configuration
 
-Everything is read from the environment — see [`.env.example`](.env.example)
-for the full list with defaults. Nothing about the schedule is hardcoded, and
-a schedule that does not run forward through the day is rejected at startup.
+Everything is read from the environment, with a `.env` file underneath it.
+Real environment variables always win over the file, so a `.env` forgotten in
+a working directory cannot override what systemd injected, and each run says
+which file it picked up. `ENV_FILE` overrides the path.
+
+See [`.env.example`](.env.example) for the full list with defaults. Nothing
+about the schedule is hardcoded, and a schedule that does not run forward
+through the day is rejected at startup.
 
 `TIME_TOLERANCE_MINUTES` is the one worth understanding: it is how long after
 a scheduled time a punch may still be registered. It is also what makes a
@@ -116,16 +130,31 @@ element per punch already registered today, in the order Acuttis lists them.
 Reading the wrong elements is how a punch ends up registered against the wrong
 event, so the automation refuses to start without it rather than guess.
 
-To find it, run once with the browser visible and nothing at stake:
+To find it, use discovery mode:
 
 ```sh
-HEADLESS=false DRY_RUN=true gleam run
+DISCOVER=true gleam run
 ```
 
-then inspect the punch interface while it is open. The remaining punch
-selectors default to what the public punch modal on the sign-in page uses;
-whether the signed-in interface is the same component is not yet verified, so
-override them if a run reports it could not find one.
+Discovery signs in, lists every candidate selector holding an `HH:MM` time
+with how many elements each matches and how many are visible, and **clicks
+nothing at all**. It cannot register a punch, so it is safe to run against a
+real account at any time of day — which matters, because finding this selector
+needs an authenticated session and an authenticated session is exactly where a
+stray click would be expensive. A test asserts the port only ever sees `open`,
+`sign_in`, `describe`, `close`.
+
+It is also the one mode that does not require `PUNCH_LIST_SELECTOR`, since
+that is what it exists to find. Add `HEADLESS=false` to watch it happen.
+
+The remaining punch selectors default to what the public punch modal on the
+sign-in page uses; whether the signed-in interface is the same component is not
+yet verified, so override them if a run reports it could not find one.
+
+Setting `PUNCH_TRIGGER_SELECTOR` to nothing at all means *the punches are
+already on the page, do not click anything to see them*. If the dashboard shows
+today's marks directly, that is the configuration to prefer: it leaves a dry
+run with no click to make.
 
 ## Observability
 
@@ -191,5 +220,6 @@ The modules, roughly outermost first:
 | `config`, `credentials`, `selectors` | configuration, with credentials kept apart |
 | `clock`, `punch` | validated time, and the four punches of a day |
 | `report` | what a run leaves behind |
+| `discovery` | signs in, describes the page, clicks nothing |
 | `browser` | the port every effect goes through |
 | `playwright`, `acuttis`, `system` | the adapters, and the only impure code |
