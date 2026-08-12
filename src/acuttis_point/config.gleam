@@ -35,6 +35,10 @@ pub type Config {
     skip_dates: List(clock.Date),
     /// Decide and log, but never touch Acuttis.
     dry_run: Bool,
+    /// How long any single browser step may take.
+    timeout_seconds: Int,
+    /// False shows the browser, which is how the punch selectors get found.
+    headless: Bool,
   )
 }
 
@@ -58,6 +62,8 @@ const default_timezone = "America/Sao_Paulo"
 
 const default_tolerance_minutes = 10
 
+const default_timeout_seconds = 30
+
 /// Largest accepted tolerance. Four hours is already generous; beyond that a
 /// late run would be registering a time that has little to do with reality.
 const max_tolerance_minutes = 240
@@ -78,6 +84,14 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   ))
   use skip_dates <- result.try(date_list(env, "SKIP_DATES"))
   use dry_run <- result.try(boolean(env, "DRY_RUN", False))
+  use timeout_seconds <- result.try(bounded_int(
+    env,
+    "STEP_TIMEOUT_SECONDS",
+    default_timeout_seconds,
+    5,
+    300,
+  ))
+  use headless <- result.try(boolean(env, "HEADLESS", True))
 
   let timezone = lookup_or(env, "TIMEZONE", default_timezone)
   use schedule <- result.try(
@@ -92,6 +106,8 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     timezone:,
     skip_dates:,
     dry_run:,
+    timeout_seconds:,
+    headless:,
   ))
 }
 
