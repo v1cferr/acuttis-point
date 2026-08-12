@@ -164,9 +164,13 @@ export async function close(session) {
 
 /// Returns a failure, or null once the punch interface is on screen.
 async function openPunchInterface(page, triggerSelector, modalSelector) {
-  const modal = page.locator(modalSelector).first();
+  // No trigger configured means the punches are already on the page. Nothing is
+  // clicked, which is what leaves a dry run provably unable to punch.
+  if (!triggerSelector) return null;
 
-  if (await modal.isVisible().catch(() => false)) {
+  const modal = modalSelector ? page.locator(modalSelector).first() : null;
+
+  if (modal && (await modal.isVisible().catch(() => false))) {
     return null;
   }
 
@@ -184,7 +188,7 @@ async function openPunchInterface(page, triggerSelector, modalSelector) {
 
   try {
     await trigger.click();
-    await modal.waitFor({ state: "visible" });
+    if (modal) await modal.waitFor({ state: "visible" });
   } catch (error) {
     return isTimeout(error)
       ? fail("interface", `the punch interface (${modalSelector})`)
@@ -192,4 +196,110 @@ async function openPunchInterface(page, triggerSelector, modalSelector) {
   }
 
   return null;
+}
+
+// Everything below only reads. A hidden element is still in the DOM, which is
+// why this can find the punch rows without opening anything.
+export async function describePage(session, triggerSelector, modalSelector) {
+  const { page } = session;
+
+  try {
+    const lines = await page.evaluate(
+      ([trigger, modal]) => {
+        const out = [];
+
+        const count = (selector) => {
+          try {
+            return document.querySelectorAll(selector).length;
+          } catch {
+            return -1;
+          }
+        };
+
+        const visibleCount = (selector) => {
+          try {
+            return Array.from(document.querySelectorAll(selector)).filter(
+              (element) =>
+                !!(element.offsetParent || element.getClientRects().length),
+            ).length;
+          } catch {
+            return -1;
+          }
+        };
+
+        out.push(`url: ${location.pathname}`);
+        if (trigger) {
+          out.push(
+            `PUNCH_TRIGGER_SELECTOR "${trigger}" matches ${count(trigger)}, ${visibleCount(trigger)} visible`,
+          );
+        }
+        if (modal) {
+          out.push(
+            `PUNCH_MODAL_SELECTOR "${modal}" matches ${count(modal)}, ${visibleCount(modal)} visible`,
+          );
+        }
+
+        const TIME = /\b([01][0-9]|2[0-3]):[0-5][0-9]\b/;
+        const holdsTime = (element) => TIME.test(element.textContent || "");
+
+        // The innermost elements holding a time, plus their parents: for a row
+        // like <div class="row"><span>08:03</span></div> the row is usually
+        // what PUNCH_LIST_SELECTOR wants, and the span is what finds it.
+        const leaves = Array.from(document.querySelectorAll("body *")).filter(
+          (element) =>
+            holdsTime(element) &&
+            !Array.from(element.children).some(holdsTime),
+        );
+
+        const selectorFor = (element) =>
+          element.tagName.toLowerCase() +
+          Array.from(element.classList)
+            .map((name) => `.${CSS.escape(name)}`)
+            .join("");
+
+        const candidates = new Map();
+        for (const leaf of leaves) {
+          const texts = [leaf, leaf.parentElement].filter(Boolean);
+          for (const element of texts) {
+            const candidate = selectorFor(element);
+            if (!candidates.has(candidate)) candidates.set(candidate, new Set());
+            candidates
+              .get(candidate)
+              .add(
+                (leaf.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40),
+              );
+          }
+        }
+
+        if (candidates.size === 0) {
+          out.push(
+            "no element on this page holds an HH:MM time — either no punch is registered today, or this is the wrong page",
+          );
+          return out;
+        }
+
+        out.push("candidates for PUNCH_LIST_SELECTOR:");
+        for (const [candidate, texts] of candidates) {
+          const matches = count(candidate);
+          // A selector matching half the page is not a punch list.
+          if (matches > 20) continue;
+          out.push(
+            `  ${candidate}  matches ${matches}, ${visibleCount(candidate)} visible  e.g. ${Array.from(
+              texts,
+            )
+              .slice(0, 4)
+              .join(" | ")}`,
+          );
+        }
+        return out;
+      },
+      [triggerSelector, modalSelector],
+    );
+
+    return ok(lines);
+  } catch (error) {
+    return isTimeout(error)
+      ? fail("timeout", "reading the page")
+      : fail("interface", error.message);
+  }
 }

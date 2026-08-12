@@ -24,9 +24,12 @@ pub type Selectors {
     username_field: String,
     password_field: String,
     submit_button: String,
-    /// Opens the punch interface.
+    /// Opens the punch interface. Empty means the punches are already on the
+    /// page and nothing needs to be clicked to see them — which is also the
+    /// safest configuration, since it leaves a dry run unable to click at all.
     punch_trigger: String,
-    /// Present once the punch interface is open.
+    /// Present once the punch interface is open. Empty means there is nothing
+    /// to wait for.
     punch_modal: String,
     /// Registers the punch.
     punch_button: String,
@@ -54,37 +57,35 @@ const default_punch_modal = "#mark_modal"
 pub fn from_env(env: Dict(String, String)) -> Result(Selectors, SelectorError) {
   case required(env, "PUNCH_LIST_SELECTOR") {
     Error(error) -> Error(error)
-    Ok(punch_list) ->
-      Ok(Selectors(
-        username_field: or_default(
-          env,
-          "USERNAME_SELECTOR",
-          default_username_field,
-        ),
-        password_field: or_default(
-          env,
-          "PASSWORD_SELECTOR",
-          default_password_field,
-        ),
-        submit_button: or_default(env, "SUBMIT_SELECTOR", default_submit_button),
-        punch_trigger: or_default(
-          env,
-          "PUNCH_TRIGGER_SELECTOR",
-          default_punch_trigger,
-        ),
-        punch_modal: or_default(
-          env,
-          "PUNCH_MODAL_SELECTOR",
-          default_punch_modal,
-        ),
-        punch_button: or_default(
-          env,
-          "PUNCH_BUTTON_SELECTOR",
-          default_punch_button(default_punch_modal),
-        ),
-        punch_list: punch_list,
-      ))
+    Ok(punch_list) -> Ok(with_punch_list(env, punch_list))
   }
+}
+
+/// Selectors for a discovery run. Discovery exists to find
+/// `PUNCH_LIST_SELECTOR`, so it cannot be the one thing it demands up front —
+/// and it never reads the punch list anyway.
+pub fn for_discovery(env: Dict(String, String)) -> Selectors {
+  with_punch_list(env, "")
+}
+
+fn with_punch_list(env: Dict(String, String), punch_list: String) -> Selectors {
+  Selectors(
+    username_field: or_default(env, "USERNAME_SELECTOR", default_username_field),
+    password_field: or_default(env, "PASSWORD_SELECTOR", default_password_field),
+    submit_button: or_default(env, "SUBMIT_SELECTOR", default_submit_button),
+    punch_trigger: or_default(
+      env,
+      "PUNCH_TRIGGER_SELECTOR",
+      default_punch_trigger,
+    ),
+    punch_modal: or_default(env, "PUNCH_MODAL_SELECTOR", default_punch_modal),
+    punch_button: or_default(
+      env,
+      "PUNCH_BUTTON_SELECTOR",
+      default_punch_button(default_punch_modal),
+    ),
+    punch_list: punch_list,
+  )
 }
 
 pub fn error_to_string(error: SelectorError) -> String {
@@ -116,13 +117,19 @@ fn required(
   }
 }
 
+/// Presence decides here, not blankness: an unset key takes the default, but a
+/// key set to nothing means nothing on purpose. That is how
+/// `PUNCH_TRIGGER_SELECTOR=` says "do not click anything".
+///
+/// `required` above uses the opposite rule, because a blank
+/// `PUNCH_LIST_SELECTOR` is a mistake rather than an instruction.
 fn or_default(
   env: Dict(String, String),
   key: String,
   fallback: String,
 ) -> String {
-  case required(env, key) {
-    Ok(value) -> value
-    Error(_) -> fallback
+  case dict.get(env, key) {
+    Error(Nil) -> fallback
+    Ok(value) -> string.trim(value)
   }
 }

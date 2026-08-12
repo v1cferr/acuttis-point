@@ -39,6 +39,10 @@ pub type Config {
     timeout_seconds: Int,
     /// False shows the browser, which is how the punch selectors get found.
     headless: Bool,
+    /// Sign in, describe the page, and stop. Clicks no punch control at all,
+    /// which is the only way to look at the real interface with no chance of
+    /// registering a punch.
+    discover: Bool,
   )
 }
 
@@ -92,6 +96,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     300,
   ))
   use headless <- result.try(boolean(env, "HEADLESS", True))
+  use discover <- result.try(boolean(env, "DISCOVER", False))
 
   let timezone = lookup_or(env, "TIMEZONE", default_timezone)
   use schedule <- result.try(
@@ -108,6 +113,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     dry_run:,
     timeout_seconds:,
     headless:,
+    discover:,
   ))
 }
 

@@ -8,6 +8,7 @@
 import acuttis_point/clock
 import acuttis_point/config
 import acuttis_point/credentials
+import acuttis_point/discovery
 import acuttis_point/playwright
 import acuttis_point/report
 import acuttis_point/runner
@@ -50,14 +51,21 @@ pub fn main() -> Nil {
         <> credentials.to_string(setup.secrets),
       )
 
-      let _ =
-        runner.run(
-          settings: setup.settings,
-          secrets: setup.secrets,
-          now: setup.now,
-          port: playwright.port(setup.settings, setup.page_selectors),
-        )
-        |> promise.map(emit(log, _))
+      let port = playwright.port(setup.settings, setup.page_selectors)
+
+      let _ = case setup.settings.discover {
+        True ->
+          discovery.discover(secrets: setup.secrets, now: setup.now, port: port)
+          |> promise.map(announce)
+        False ->
+          runner.run(
+            settings: setup.settings,
+            secrets: setup.secrets,
+            now: setup.now,
+            port: port,
+          )
+          |> promise.map(emit(log, _))
+      }
 
       // The promise keeps the process alive; the exit status is set once it
       // settles, so buffered output has already reached the journal.
@@ -77,10 +85,14 @@ fn setup(env: Dict(String, String)) -> Result(Setup, String) {
     credentials.from_env(env)
     |> result.map_error(credentials.error_to_string),
   )
-  use page_selectors <- result.try(
-    selectors.from_env(env)
-    |> result.map_error(selectors.error_to_string),
-  )
+  // Discovery is what finds the punch list selector, so it cannot be the one
+  // thing that demands it up front.
+  use page_selectors <- result.try(case settings.discover {
+    True -> Ok(selectors.for_discovery(env))
+    False ->
+      selectors.from_env(env)
+      |> result.map_error(selectors.error_to_string)
+  })
   use now <- result.try(
     system.now(settings.timezone)
     |> result.map_error(system.error_to_string),
@@ -112,6 +124,13 @@ fn report_bad_setup(log: Result(String, Nil), detail: String) -> Nil {
       system.set_exit_status(1)
     }
   }
+}
+
+/// A discovery run produces no record: nothing happened to record. It goes to
+/// stdout only.
+fn announce(found: discovery.Discovery) -> Nil {
+  io.println(discovery.to_text(found))
+  system.set_exit_status(discovery.exit_code(found))
 }
 
 fn emit(log: Result(String, Nil), record: report.Report) -> Nil {

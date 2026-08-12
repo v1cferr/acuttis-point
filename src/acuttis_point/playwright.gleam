@@ -73,6 +73,17 @@ pub fn port(
       )
       |> promise.map(translate)
     },
+    describe: fn(session) {
+      ffi_describe(
+        session,
+        page_selectors.punch_trigger,
+        page_selectors.punch_modal,
+      )
+      |> promise.map(fn(outcome) {
+        translate(outcome)
+        |> result.map(array.to_list)
+      })
+    },
     close: ffi_close,
   )
 }
@@ -133,6 +144,13 @@ fn ffi_register(
   modal_selector: String,
   button_selector: String,
 ) -> Promise(Result(Nil, Failure))
+
+@external(javascript, "./playwright_ffi.mjs", "describePage")
+fn ffi_describe(
+  session: Session,
+  trigger_selector: String,
+  modal_selector: String,
+) -> Promise(Result(Array(String), Failure))
 
 @external(javascript, "./playwright_ffi.mjs", "close")
 fn ffi_close(session: Session) -> Promise(Nil)

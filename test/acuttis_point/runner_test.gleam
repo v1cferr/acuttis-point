@@ -90,7 +90,7 @@ fn fake(
 ) -> #(browser.Port(Nil), spy.Cell(Journal)) {
   let cell = spy.new(Journal(calls: [], punches: existing))
 
-  let record = fn(name: String) {
+  let record = fn(name: String) -> Nil {
     let journal = spy.get(cell)
     spy.set(cell, Journal(..journal, calls: list.append(journal.calls, [name])))
   }
@@ -134,6 +134,10 @@ fn fake(
           _, _ -> Nil
         }
         promise.resolve(behaviour.register)
+      },
+      describe: fn(_session) {
+        record("describe")
+        promise.resolve(Ok(["url: /dashboard"]))
       },
       close: fn(_session) {
         record("close")

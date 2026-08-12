@@ -41,6 +41,10 @@ pub type Port(session) {
     read_punches: fn(session) ->
       Promise(Result(List(state.Registered), BrowserError)),
     register: fn(session, punch.Punch) -> Promise(Result(Nil, BrowserError)),
+    /// What the page looks like right now, in lines a human reads. Touches
+    /// nothing: it is how the punch selectors get found without risking a
+    /// click that registers a real punch.
+    describe: fn(session) -> Promise(Result(List(String), BrowserError)),
     /// Best effort. A run has already happened or not by the time it is called,
     /// so a failure here has nothing left to change.
     close: fn(session) -> Promise(Nil),
