@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs }:
     let
       systems = [
         "x86_64-linux"
@@ -13,6 +13,22 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
+      packages = forAllSystems (pkgs: {
+        default = pkgs.callPackage ./nix/package.nix { };
+      });
+
+      nixosModules.default =
+        { pkgs, lib, ... }:
+        {
+          imports = [
+            ./nix/service.nix
+            ./nix/timer.nix
+          ];
+          # The flake's own build is the default, so a host only has to enable
+          # the service and point it at a secret.
+          services.acuttis-point.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        };
+
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = [
