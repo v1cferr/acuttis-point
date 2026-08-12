@@ -70,6 +70,7 @@ pub fn port(
         page_selectors.punch_trigger,
         page_selectors.punch_modal,
         page_selectors.punch_button,
+        page_selectors.punch_list,
       )
       |> promise.map(translate)
     },
@@ -137,12 +138,15 @@ fn ffi_punch_texts(
   list_selector: String,
 ) -> Promise(Result(Array(String), Failure))
 
+/// The list selector is needed to register, not only to read: the click is
+/// waited out by watching the list grow by one.
 @external(javascript, "./playwright_ffi.mjs", "registerPunch")
 fn ffi_register(
   session: Session,
   trigger_selector: String,
   modal_selector: String,
   button_selector: String,
+  list_selector: String,
 ) -> Promise(Result(Nil, Failure))
 
 @external(javascript, "./playwright_ffi.mjs", "describePage")

@@ -354,16 +354,25 @@ fn boolean(
   }
 }
 
+/// Https, or plain http on the loopback interface. The reason to demand https
+/// is that credentials cross a network; talking to a fixture on this machine
+/// has no network to cross.
 fn secure_url(
   env: Dict(String, String),
   key: String,
   fallback: String,
 ) -> Result(String, ConfigError) {
   let raw = lookup_or(env, key, fallback)
-  case string.starts_with(raw, "https://") {
+  case string.starts_with(raw, "https://") || is_loopback(raw) {
     True -> Ok(string.drop_end(raw, count_trailing_slashes(raw)))
     False -> Error(InsecureUrl(key: key, value: raw))
   }
+}
+
+fn is_loopback(raw: String) -> Bool {
+  string.starts_with(raw, "http://localhost")
+  || string.starts_with(raw, "http://127.0.0.1")
+  || string.starts_with(raw, "http://[::1]")
 }
 
 fn count_trailing_slashes(raw: String) -> Int {

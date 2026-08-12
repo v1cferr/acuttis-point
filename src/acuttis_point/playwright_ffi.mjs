@@ -83,6 +83,11 @@ export async function signIn(
     return fail("auth", "still on the sign-in page after submitting");
   }
 
+  // Leaving the sign-in route only means the application switched views. It
+  // still has to fetch the day, and reading before that lands would report an
+  // empty day that is only empty yet.
+  await page.waitForLoadState("networkidle").catch(() => {});
+
   return ok(undefined);
 }
 
@@ -96,6 +101,11 @@ export async function punchTexts(
 
   const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
   if (blocked) return blocked;
+
+  // Acuttis fetches the day's punches after the page loads, so reading before
+  // the network settles would report an empty day that is only empty yet.
+  // Not reaching a quiet network is not itself a failure.
+  await page.waitForLoadState("networkidle").catch(() => {});
 
   try {
     // No matches means the day has not started yet, which is a legitimate
@@ -117,11 +127,16 @@ export async function registerPunch(
   triggerSelector,
   modalSelector,
   buttonSelector,
+  listSelector,
 ) {
   const { page } = session;
 
   const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
   if (blocked) return blocked;
+
+  // How many punches there were before, so the click can be waited out by
+  // watching for one more rather than by hoping the network went quiet.
+  const before = await page.locator(listSelector).count();
 
   const button = page.locator(buttonSelector).first();
 
@@ -145,10 +160,19 @@ export async function registerPunch(
       : fail("unavailable", error.message);
   }
 
-  // Let the application send the punch and refresh its list before the caller
-  // reads it back. A quiet network is the best signal available; not reaching
-  // one is not itself a failure, since the confirmation read decides.
-  await page.waitForLoadState("networkidle").catch(() => {});
+  // Wait for the list to actually grow. Waiting for a quiet network is not
+  // enough: the request is issued asynchronously by the click handler, so the
+  // network can still look idle at the moment it is asked.
+  try {
+    await page.locator(listSelector).nth(before).waitFor({ state: "attached" });
+  } catch {
+    // The punch may or may not have landed. Saying so is the safe direction:
+    // the next run reads the day and will skip if it did.
+    return fail(
+      "unexpected",
+      "the punch list did not grow after clicking the punch button",
+    );
+  }
 
   return ok(undefined);
 }
@@ -202,6 +226,8 @@ async function openPunchInterface(page, triggerSelector, modalSelector) {
 // why this can find the punch rows without opening anything.
 export async function describePage(session, triggerSelector, modalSelector) {
   const { page } = session;
+
+  await page.waitForLoadState("networkidle").catch(() => {});
 
   try {
     const lines = await page.evaluate(
