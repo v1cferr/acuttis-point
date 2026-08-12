@@ -57,6 +57,16 @@ pub fn is_registered(state: DayState, target: punch.Punch) -> Bool {
   }
 }
 
+/// The time Acuttis shows for `target`, when it is on record.
+pub fn registered_at(
+  registered: List(Registered),
+  target: punch.Punch,
+) -> Result(clock.TimeOfDay, Nil) {
+  registered
+  |> list.find(fn(entry) { entry.punch == target })
+  |> result.map(fn(entry) { entry.at })
+}
+
 /// Short description for the `Current state` field of a run record.
 pub fn to_string(state: DayState) -> String {
   case state {

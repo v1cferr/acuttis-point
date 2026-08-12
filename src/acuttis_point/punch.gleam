@@ -40,3 +40,13 @@ pub fn next(punch: Punch) -> Result(Punch, Nil) {
     Exit -> Error(Nil)
   }
 }
+
+/// The punch expected before `punch`, or `Error(Nil)` for the first one.
+pub fn previous(punch: Punch) -> Result(Punch, Nil) {
+  case punch {
+    Entry -> Error(Nil)
+    LunchStart -> Ok(Entry)
+    LunchEnd -> Ok(LunchStart)
+    Exit -> Ok(LunchEnd)
+  }
+}
