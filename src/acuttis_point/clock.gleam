@@ -23,6 +23,10 @@ pub type ClockError {
   MinuteOutOfRange(Int)
   MalformedTime(String)
   UnknownWeekday(String)
+  YearOutOfRange(Int)
+  MonthOutOfRange(Int)
+  DayOutOfRange(Int)
+  MalformedDate(String)
 }
 
 /// A wall-clock time inside a single day, held as minutes since midnight.
@@ -30,7 +34,9 @@ pub opaque type TimeOfDay {
   TimeOfDay(minutes: Int)
 }
 
-pub type Date {
+/// A calendar day. Opaque for the same reason as `TimeOfDay`: the ranges are
+/// checked once at the edge, so `weekday` can never be handed a 13th month.
+pub opaque type Date {
   Date(year: Int, month: Int, day: Int)
 }
 
@@ -62,6 +68,67 @@ pub fn parse_time(raw: String) -> Result(TimeOfDay, ClockError) {
         _, _ -> Error(MalformedTime(raw))
       }
     _ -> Error(MalformedTime(raw))
+  }
+}
+
+pub fn new_date(
+  year year: Int,
+  month month: Int,
+  day day: Int,
+) -> Result(Date, ClockError) {
+  case year < 1 {
+    True -> Error(YearOutOfRange(year))
+    False ->
+      case month < 1 || month > 12 {
+        True -> Error(MonthOutOfRange(month))
+        False ->
+          case day < 1 || day > days_in_month(year: year, month: month) {
+            True -> Error(DayOutOfRange(day))
+            False -> Ok(Date(year: year, month: month, day: day))
+          }
+      }
+  }
+}
+
+/// Parse the `YYYY-MM-DD` form used by `SKIP_DATES` and by log records.
+pub fn parse_date(raw: String) -> Result(Date, ClockError) {
+  case string.split(string.trim(raw), on: "-") {
+    [year, month, day] ->
+      case int.parse(year), int.parse(month), int.parse(day) {
+        Ok(year), Ok(month), Ok(day) ->
+          new_date(year: year, month: month, day: day)
+        _, _, _ -> Error(MalformedDate(raw))
+      }
+    _ -> Error(MalformedDate(raw))
+  }
+}
+
+pub fn year(date: Date) -> Int {
+  date.year
+}
+
+pub fn month(date: Date) -> Int {
+  date.month
+}
+
+pub fn day(date: Date) -> Int {
+  date.day
+}
+
+pub fn is_leap_year(year: Int) -> Bool {
+  year % 4 == 0 && { year % 100 != 0 || year % 400 == 0 }
+}
+
+pub fn days_in_month(year year: Int, month month: Int) -> Int {
+  case month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 -> 31
+    4 | 6 | 9 | 11 -> 30
+    2 ->
+      case is_leap_year(year) {
+        True -> 29
+        False -> 28
+      }
+    _ -> 0
   }
 }
 
