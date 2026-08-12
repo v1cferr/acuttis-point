@@ -15,12 +15,16 @@ import gleam/list
 import gleam/string
 
 pub type Report {
-  Report(
+  /// The run got far enough to read the day and take a decision.
+  Decided(
     at: clock.Instant,
     state: state.DayState,
     decision: decision.Decision,
     outcome: RunOutcome,
   )
+  /// The run broke before it could read the day, so there is no decision to
+  /// report — only where it stopped.
+  Broke(at: clock.Instant, stage: Stage, detail: String)
 }
 
 pub type RunOutcome {
@@ -32,7 +36,7 @@ pub type RunOutcome {
   NothingToDo
   /// The decision was to abort; Acuttis was left alone.
   Refused
-  /// The run broke partway through.
+  /// The run broke while acting on the decision.
   Failed(stage: Stage, detail: String)
 }
 
@@ -45,27 +49,30 @@ pub type Stage {
   ReadingPunches
   RegisteringPunch
   ConfirmingPunch
-  ClosingBrowser
 }
 
 /// The process exit status. A refusal is deliberately a failure as far as
 /// systemd is concerned: it needs to show up red, because it is exactly the
 /// case that wants a human.
 pub fn exit_code(report: Report) -> Int {
-  case report.outcome {
-    Confirmed(_) | Withheld | NothingToDo -> 0
-    Failed(..) -> 1
-    Refused -> 2
+  case report {
+    Broke(..) -> 1
+    Decided(outcome:, ..) ->
+      case outcome {
+        Confirmed(_) | Withheld | NothingToDo -> 0
+        Failed(..) -> 1
+        Refused -> 2
+      }
   }
 }
 
 pub fn to_text(report: Report) -> String {
   [
     timestamp(report),
-    "Action: " <> decision.action_to_string(report.decision),
-    "Expected: " <> expected_to_string(report.state),
-    "Current state: " <> state.to_string(report.state),
-    "Result: " <> result_to_string(report.outcome),
+    "Action: " <> action(report),
+    "Expected: " <> expected(report),
+    "Current state: " <> current_state(report),
+    "Result: " <> result(report),
   ]
   |> append_optional("Reason: ", detail_line(report))
   |> append_optional("Acuttis confirmation: ", confirmation(report))
@@ -75,10 +82,10 @@ pub fn to_text(report: Report) -> String {
 pub fn to_line(report: Report) -> String {
   [
     timestamp(report),
-    "result=" <> result_to_string(report.outcome),
-    "action=" <> decision.action_to_string(report.decision),
-    "expected=" <> expected_to_string(report.state),
-    "state=" <> state.to_string(report.state),
+    "result=" <> result(report),
+    "action=" <> action(report),
+    "expected=" <> expected(report),
+    "state=" <> current_state(report),
   ]
   |> append_optional("confirmation=", confirmation(report))
   |> append_optional("reason=", quoted(detail_line(report)))
@@ -103,7 +110,6 @@ pub fn stage_to_string(stage: Stage) -> String {
     ReadingPunches -> "reading the registered punches"
     RegisteringPunch -> "registering the punch"
     ConfirmingPunch -> "confirming the punch"
-    ClosingBrowser -> "closing the browser"
   }
 }
 
@@ -113,19 +119,42 @@ fn timestamp(report: Report) -> String {
   <> clock.time_to_string(report.at.time)
 }
 
+fn result(report: Report) -> String {
+  case report {
+    Broke(..) -> "FAILED"
+    Decided(outcome:, ..) -> result_to_string(outcome)
+  }
+}
+
+fn action(report: Report) -> String {
+  case report {
+    Broke(..) -> "NONE"
+    Decided(decision: chosen, ..) -> decision.action_to_string(chosen)
+  }
+}
+
 /// The punch the day is waiting for, which on the happy path is also the one
 /// being registered.
-fn expected_to_string(day: state.DayState) -> String {
-  case day {
-    state.Waiting(missing) -> punch.to_string(missing)
-    state.Completed -> "NONE"
-    state.Invalid(_) -> "UNKNOWN"
+fn expected(report: Report) -> String {
+  case report {
+    Broke(..) -> "UNKNOWN"
+    Decided(state: state.Waiting(missing), ..) -> punch.to_string(missing)
+    Decided(state: state.Completed, ..) -> "NONE"
+    Decided(state: state.Invalid(_), ..) -> "UNKNOWN"
+  }
+}
+
+fn current_state(report: Report) -> String {
+  case report {
+    // The day was never read, so there is no state to report.
+    Broke(..) -> "UNKNOWN"
+    Decided(state: day, ..) -> state.to_string(day)
   }
 }
 
 fn confirmation(report: Report) -> Result(String, Nil) {
-  case report.outcome {
-    Confirmed(at:) -> Ok(clock.time_to_string(at))
+  case report {
+    Decided(outcome: Confirmed(at:), ..) -> Ok(clock.time_to_string(at))
     _ -> Error(Nil)
   }
 }
@@ -133,16 +162,22 @@ fn confirmation(report: Report) -> Result(String, Nil) {
 /// Why the run ended the way it did. Every reason other than a failure comes
 /// straight from the decision, so the record can never disagree with the rule.
 fn detail_line(report: Report) -> Result(String, Nil) {
-  case report.outcome {
-    Confirmed(_) -> Error(Nil)
-    Withheld -> Ok("dry run, the punch was decided but not registered")
-    Failed(stage:, detail:) ->
+  case report {
+    Broke(stage:, detail:, ..) ->
       Ok(stage_to_string(stage) <> " failed: " <> detail)
-    NothingToDo | Refused ->
-      case report.decision {
-        decision.Skip(reason) -> Ok(decision.skip_reason_to_string(reason))
-        decision.Abort(reason) -> Ok(decision.abort_reason_to_string(reason))
-        decision.Register(..) -> Error(Nil)
+    Decided(outcome:, decision: chosen, ..) ->
+      case outcome {
+        Confirmed(_) -> Error(Nil)
+        Withheld -> Ok("dry run, the punch was decided but not registered")
+        Failed(stage:, detail:) ->
+          Ok(stage_to_string(stage) <> " failed: " <> detail)
+        NothingToDo | Refused ->
+          case chosen {
+            decision.Skip(reason) -> Ok(decision.skip_reason_to_string(reason))
+            decision.Abort(reason) ->
+              Ok(decision.abort_reason_to_string(reason))
+            decision.Register(..) -> Error(Nil)
+          }
       }
   }
 }

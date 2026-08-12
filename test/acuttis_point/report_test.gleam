@@ -16,7 +16,7 @@ fn moment(time: String) -> clock.Instant {
 
 pub fn a_confirmed_punch_reads_like_the_ticket_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("07:55"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
@@ -34,7 +34,7 @@ Acuttis confirmation: 07:55"
 
 pub fn a_failure_names_the_stage_and_the_detail_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("12:44"),
       state: state.Waiting(punch.LunchStart),
       decision: decision.Register(
@@ -58,7 +58,7 @@ Reason: confirming the punch failed: acuttis did not show the punch back"
 
 pub fn a_skip_borrows_its_reason_from_the_decision_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("08:05"),
       state: state.Waiting(punch.LunchStart),
       decision: decision.Skip(decision.AlreadyRegistered(
@@ -79,7 +79,7 @@ Reason: ENTRY is already registered at 08:03"
 
 pub fn a_refusal_exits_non_zero_so_systemd_shows_it_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("10:30"),
       state: state.Waiting(punch.Entry),
       decision: decision.Abort(decision.WindowClosed(
@@ -103,7 +103,7 @@ pub fn an_impossible_day_has_no_expected_punch_test() {
   let inconsistency =
     state.OutOfOrder(expected: punch.Entry, found: punch.LunchStart)
   let record =
-    report.Report(
+    report.Decided(
       at: moment("12:00"),
       state: state.Invalid(inconsistency),
       decision: decision.Abort(decision.InconsistentState(inconsistency)),
@@ -120,7 +120,7 @@ Reason: acuttis shows an impossible day: expected ENTRY but found LUNCH_START"
 
 pub fn a_completed_day_expects_nothing_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("18:00"),
       state: state.Completed,
       decision: decision.Skip(decision.DayAlreadyComplete),
@@ -137,7 +137,7 @@ Reason: every punch of the day is already registered"
 
 pub fn a_dry_run_says_so_and_still_succeeds_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("08:00"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
@@ -155,7 +155,7 @@ Reason: dry run, the punch was decided but not registered"
 
 pub fn the_one_line_form_keeps_every_field_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("07:55"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
@@ -169,7 +169,7 @@ pub fn the_one_line_form_keeps_every_field_test() {
 
 pub fn the_one_line_form_quotes_a_free_text_reason_test() {
   let record =
-    report.Report(
+    report.Decided(
       at: moment("08:00"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
