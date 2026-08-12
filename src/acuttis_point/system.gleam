@@ -8,6 +8,17 @@
 import acuttis_point/clock
 import gleam/dict.{type Dict}
 import gleam/javascript/array.{type Array}
+import gleam/list
+import gleam/string
+
+/// Where configuration was read from.
+pub type Environment {
+  Environment(
+    values: Dict(String, String),
+    /// The `.env` that contributed, when one did.
+    dotenv: Result(String, Nil),
+  )
+}
 
 pub type SystemError {
   /// The configured `TIMEZONE` is not one the runtime knows.
@@ -18,10 +29,94 @@ pub type SystemError {
   WriteFailed(path: String, detail: String)
 }
 
-pub fn environment() -> Dict(String, String) {
-  environment_entries()
-  |> array.to_list
+/// The process environment, with a `.env` file underneath it.
+///
+/// Real environment variables win over the file, always. A `.env` forgotten in
+/// a working directory must not be able to override what systemd injected, and
+/// in production there is no `.env` to read in the first place.
+///
+/// The file is `.env` unless `ENV_FILE` says otherwise.
+pub fn environment() -> Environment {
+  let from_process =
+    environment_entries()
+    |> array.to_list
+    |> dict.from_list
+
+  let path = case dict.get(from_process, "ENV_FILE") {
+    Ok(configured) ->
+      case string.trim(configured) {
+        "" -> default_env_file
+        trimmed -> trimmed
+      }
+    Error(Nil) -> default_env_file
+  }
+
+  let from_file = parse_dotenv(read_file(path))
+
+  case dict.is_empty(from_file) {
+    True -> Environment(values: from_process, dotenv: Error(Nil))
+    False ->
+      Environment(
+        values: dict.merge(into: from_file, from: from_process),
+        dotenv: Ok(path),
+      )
+  }
+}
+
+/// Parse a `.env`: one `KEY=value` per line, `#` comments, an optional `export`
+/// prefix and optional surrounding quotes.
+///
+/// A line that is not an assignment is skipped rather than being an error: this
+/// is a hand-edited file, and refusing to start over a stray line would be
+/// worse than ignoring it. Values are trimmed, so a password with meaningful
+/// leading or trailing spaces has to be quoted.
+pub fn parse_dotenv(contents: String) -> Dict(String, String) {
+  contents
+  |> string.split(on: "\n")
+  |> list.filter_map(parse_line)
   |> dict.from_list
+}
+
+fn parse_line(line: String) -> Result(#(String, String), Nil) {
+  case string.trim(line) {
+    "" -> Error(Nil)
+    trimmed ->
+      case string.starts_with(trimmed, "#") {
+        True -> Error(Nil)
+        False -> assignment(without_export(trimmed))
+      }
+  }
+}
+
+fn without_export(line: String) -> String {
+  case string.starts_with(line, "export ") {
+    True -> string.trim(string.drop_start(line, 7))
+    False -> line
+  }
+}
+
+fn assignment(line: String) -> Result(#(String, String), Nil) {
+  case string.split_once(line, on: "=") {
+    Error(Nil) -> Error(Nil)
+    Ok(#(key, value)) ->
+      case string.trim(key) {
+        "" -> Error(Nil)
+        name -> Ok(#(name, unquote(string.trim(value))))
+      }
+  }
+}
+
+fn unquote(value: String) -> String {
+  case wrapped_in(value, "\"") || wrapped_in(value, "'") {
+    True -> value |> string.drop_start(1) |> string.drop_end(1)
+    False -> value
+  }
+}
+
+fn wrapped_in(value: String, quote: String) -> Bool {
+  string.length(value) >= 2
+  && string.starts_with(value, quote)
+  && string.ends_with(value, quote)
 }
 
 /// The current moment in `timezone`, so a schedule written in local time is
@@ -57,8 +152,15 @@ pub fn error_to_string(error: SystemError) -> String {
   }
 }
 
+const default_env_file = ".env"
+
 @external(javascript, "./system_ffi.mjs", "environmentEntries")
 fn environment_entries() -> Array(#(String, String))
+
+/// The file's contents, or an empty string when there is nothing readable
+/// there. A missing `.env` is the normal case in production, not a failure.
+@external(javascript, "./system_ffi.mjs", "readFileOrEmpty")
+fn read_file(path: String) -> String
 
 /// Year, month, day, hour and minute in the given zone, or nothing at all when
 /// the zone is unknown. A list keeps the FFI to numbers only.

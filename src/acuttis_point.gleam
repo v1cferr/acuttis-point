@@ -29,8 +29,16 @@ type Setup {
 }
 
 pub fn main() -> Nil {
-  let env = system.environment()
+  let environment = system.environment()
+  let env = environment.values
   let log = log_file(env)
+
+  // Where configuration came from is worth saying out loud: a `.env` picked up
+  // from a working directory should never be a surprise.
+  case environment.dotenv {
+    Ok(path) -> io.println("acuttis-point: read " <> path)
+    Error(Nil) -> Nil
+  }
 
   case setup(env) {
     Error(detail) -> report_bad_setup(log, detail)

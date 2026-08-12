@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 // A Gleam tuple is a JavaScript array, so `Object.entries` already has the
@@ -41,6 +41,16 @@ export function clockParts(timeZone) {
     Number(found.hour),
     Number(found.minute),
   ];
+}
+
+// A missing or unreadable .env is the normal case in production, so it reads as
+// "nothing to add" rather than as a failure.
+export function readFileOrEmpty(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 export function appendToFile(path, text) {
