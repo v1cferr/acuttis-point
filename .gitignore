@@ -1,0 +1,22 @@
+# Secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Gleam
+build/
+*.beam
+*.ez
+erl_crash.dump
+
+# Node
+node_modules/
+
+# Nix
+result
+result-*
+.direnv/
+
+# Runtime artifacts
+logs/
+screenshots/
