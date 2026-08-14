@@ -20,6 +20,7 @@ fn registered() -> report.Report {
     at: moment("07:57"),
     state: state.Waiting(punch.Entry),
     decision: decision.Register(punch: punch.Entry, expected_at: at("07:51")),
+    registered: [],
     outcome: report.Confirmed(at: at("07:57")),
   )
 }
@@ -32,6 +33,7 @@ fn nothing_to_do() -> report.Report {
       punch: punch.Entry,
       at: at("07:57"),
     )),
+    registered: [],
     outcome: report.NothingToDo,
   )
 }
@@ -45,6 +47,7 @@ fn refused() -> report.Report {
       expected_at: at("07:51"),
       minutes_late: 159,
     )),
+    registered: [],
     outcome: report.Refused,
   )
 }
@@ -96,6 +99,7 @@ pub fn a_dry_run_says_it_registered_nothing_test() {
       at: moment("07:57"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("07:51")),
+      registered: [],
       outcome: report.Withheld,
     ))
   assert withheld.body == "ENTRY was due, and was not registered"
@@ -138,6 +142,7 @@ pub fn a_confirmation_failure_is_a_problem_test() {
       at: moment("07:57"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("07:51")),
+      registered: [],
       outcome: report.Failed(
         stage: report.ConfirmingPunch,
         detail: "acuttis does not show ENTRY after registering it",

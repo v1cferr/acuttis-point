@@ -44,10 +44,15 @@ pub type AbortReason {
   InconsistentState(state.Inconsistency)
 }
 
-/// The decision together with the state it was taken from, since a run record
-/// reports both.
+/// The decision, the state it was taken from, and the punches both came out
+/// of — a run record reports all three, and the third is what lets the log
+/// answer "did it read my day right?" without a second look at the site.
 pub type Outcome {
-  Outcome(state: state.DayState, decision: Decision)
+  Outcome(
+    state: state.DayState,
+    decision: Decision,
+    registered: List(state.Registered),
+  )
 }
 
 pub fn decide(
@@ -56,7 +61,11 @@ pub fn decide(
   registered registered: List(state.Registered),
 ) -> Outcome {
   let current = state.from_punches(registered)
-  Outcome(state: current, decision: choose(settings, now, registered, current))
+  Outcome(
+    state: current,
+    decision: choose(settings, now, registered, current),
+    registered: registered,
+  )
 }
 
 /// The `Action` field of a run record: the punch this run is about, if any.

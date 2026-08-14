@@ -113,6 +113,7 @@ pub fn a_due_punch_is_registered_through_a_real_browser_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Confirmed(at: at("08:03")),
     )
   assert fixture.punches() == list.append(yesterday, [today_at("08:03")])
@@ -127,10 +128,12 @@ pub fn earlier_days_on_the_receipt_are_ignored_test() {
     == report.Decided(
       at: moment("12:04"),
       state: state.Waiting(punch.LunchStart),
+      // Só a linha de hoje; as de ontem ficaram de fora.
       decision: decision.Register(
         punch: punch.LunchStart,
         expected_at: at("12:00"),
       ),
+      registered: [state.Registered(punch: punch.Entry, at: at("07:58"))],
       outcome: report.Confirmed(at: at("12:04")),
     )
   promise.resolve(Nil)

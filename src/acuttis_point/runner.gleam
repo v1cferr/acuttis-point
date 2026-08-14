@@ -143,6 +143,7 @@ fn decided(
     at: now,
     state: outcome.state,
     decision: outcome.decision,
+    registered: outcome.registered,
     outcome: result,
   )
 }

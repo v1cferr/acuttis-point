@@ -20,6 +20,9 @@ pub type Report {
     at: clock.Instant,
     state: state.DayState,
     decision: decision.Decision,
+    /// What Acuttis showed for today, so the record says which times were read
+    /// and not merely what was concluded from them.
+    registered: List(state.Registered),
     outcome: RunOutcome,
   )
   /// The run broke before it could read the day, so there is no decision to
@@ -72,6 +75,7 @@ pub fn to_text(report: Report) -> String {
     "Action: " <> action(report),
     "Expected: " <> expected(report),
     "Current state: " <> current_state(report),
+    "Punches: " <> punches(report),
     "Result: " <> result(report),
   ]
   |> append_optional("Reason: ", detail_line(report))
@@ -86,6 +90,7 @@ pub fn to_line(report: Report) -> String {
     "action=" <> action(report),
     "expected=" <> expected(report),
     "state=" <> current_state(report),
+    "punches=\"" <> punches(report) <> "\"",
   ]
   |> append_optional("confirmation=", confirmation(report))
   |> append_optional("reason=", quoted(detail_line(report)))
@@ -141,6 +146,16 @@ fn expected(report: Report) -> String {
     Decided(state: state.Waiting(missing), ..) -> punch.to_string(missing)
     Decided(state: state.Completed, ..) -> "NONE"
     Decided(state: state.Invalid(_), ..) -> "UNKNOWN"
+  }
+}
+
+/// The times read off the receipt. A day is only ever four punches, so this
+/// stays short enough for one line.
+fn punches(report: Report) -> String {
+  case report {
+    // The day was never read.
+    Broke(..) -> "unknown"
+    Decided(registered:, ..) -> state.registered_to_string(registered)
   }
 }
 

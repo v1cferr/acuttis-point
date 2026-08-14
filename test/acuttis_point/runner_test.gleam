@@ -185,6 +185,7 @@ pub fn a_due_punch_is_registered_and_confirmed_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Confirmed(at: at("08:03")),
     )
   // The punches are read a second time: the confirmation is observed, not
@@ -203,6 +204,7 @@ pub fn a_registration_acuttis_does_not_show_back_fails_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Failed(
         stage: report.ConfirmingPunch,
         detail: "acuttis does not show ENTRY after registering it",
@@ -223,6 +225,7 @@ pub fn a_dry_run_decides_but_never_registers_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Withheld,
     )
   assert calls(cell) == ["open", "sign_in", "read_punches", "close"]
@@ -241,6 +244,7 @@ pub fn a_skip_never_reaches_the_punch_control_test() {
         next: punch.Entry,
         opens_at: at("08:00"),
       )),
+      registered: [],
       outcome: report.NothingToDo,
     )
   assert calls(cell) == ["open", "sign_in", "read_punches", "close"]
@@ -259,6 +263,7 @@ pub fn an_abort_never_reaches_the_punch_control_test() {
         expected_at: at("08:00"),
         minutes_late: 180,
       )),
+      registered: [],
       outcome: report.Refused,
     )
   assert calls(cell) == ["open", "sign_in", "read_punches", "close"]
@@ -278,6 +283,7 @@ pub fn a_second_run_in_the_same_window_registers_nothing_test() {
         punch: punch.Entry,
         at: at("08:03"),
       )),
+      registered: already,
       outcome: report.NothingToDo,
     )
   assert !list.contains(calls(cell), "register")
@@ -349,6 +355,7 @@ pub fn a_punch_control_that_refuses_fails_at_registration_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Failed(
         stage: report.RegisteringPunch,
         detail: "the punch control is unavailable: the button is disabled",
@@ -368,6 +375,7 @@ pub fn a_session_that_expires_during_confirmation_fails_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Failed(
         stage: report.ConfirmingPunch,
         detail: "the session expired mid-run",
@@ -391,6 +399,7 @@ pub fn a_full_day_is_left_alone_test() {
       at: moment("17:35"),
       state: state.Completed,
       decision: decision.Skip(decision.DayAlreadyComplete),
+      registered: full,
       outcome: report.NothingToDo,
     )
   assert !list.contains(calls(cell), "register")

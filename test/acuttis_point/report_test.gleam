@@ -3,10 +3,18 @@ import acuttis_point/decision
 import acuttis_point/punch
 import acuttis_point/report
 import acuttis_point/state
+import gleam/list
 
 fn at(raw: String) -> clock.TimeOfDay {
   let assert Ok(time) = clock.parse_time(raw)
   time
+}
+
+fn read(entries: List(#(punch.Punch, String))) -> List(state.Registered) {
+  list.map(entries, fn(entry) {
+    let #(kind, time) = entry
+    state.Registered(punch: kind, at: at(time))
+  })
 }
 
 fn moment(time: String) -> clock.Instant {
@@ -20,6 +28,7 @@ pub fn a_confirmed_punch_reads_like_the_ticket_test() {
       at: moment("07:55"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Confirmed(at: at("07:55")),
     )
 
@@ -27,6 +36,7 @@ pub fn a_confirmed_punch_reads_like_the_ticket_test() {
 Action: ENTRY
 Expected: ENTRY
 Current state: WAITING(ENTRY)
+Punches: none
 Result: SUCCESS
 Acuttis confirmation: 07:55"
   assert report.exit_code(record) == 0
@@ -41,6 +51,7 @@ pub fn a_failure_names_the_stage_and_the_detail_test() {
         punch: punch.LunchStart,
         expected_at: at("12:00"),
       ),
+      registered: read([#(punch.Entry, "08:03")]),
       outcome: report.Failed(
         stage: report.ConfirmingPunch,
         detail: "acuttis did not show the punch back",
@@ -51,6 +62,7 @@ pub fn a_failure_names_the_stage_and_the_detail_test() {
 Action: LUNCH_START
 Expected: LUNCH_START
 Current state: WAITING(LUNCH_START)
+Punches: ENTRY@08:03
 Result: FAILED
 Reason: confirming the punch failed: acuttis did not show the punch back"
   assert report.exit_code(record) == 1
@@ -65,6 +77,7 @@ pub fn a_skip_borrows_its_reason_from_the_decision_test() {
         punch: punch.Entry,
         at: at("08:03"),
       )),
+      registered: read([#(punch.Entry, "08:03")]),
       outcome: report.NothingToDo,
     )
 
@@ -72,6 +85,7 @@ pub fn a_skip_borrows_its_reason_from_the_decision_test() {
 Action: NONE
 Expected: LUNCH_START
 Current state: WAITING(LUNCH_START)
+Punches: ENTRY@08:03
 Result: SKIPPED
 Reason: ENTRY is already registered at 08:03"
   assert report.exit_code(record) == 0
@@ -87,6 +101,7 @@ pub fn a_refusal_exits_non_zero_so_systemd_shows_it_test() {
         expected_at: at("08:00"),
         minutes_late: 150,
       )),
+      registered: [],
       outcome: report.Refused,
     )
 
@@ -94,6 +109,7 @@ pub fn a_refusal_exits_non_zero_so_systemd_shows_it_test() {
 Action: NONE
 Expected: ENTRY
 Current state: WAITING(ENTRY)
+Punches: none
 Result: ABORTED
 Reason: ENTRY was due at 08:00, 150 minutes ago; refusing to backdate it"
   assert report.exit_code(record) == 2
@@ -107,6 +123,7 @@ pub fn an_impossible_day_has_no_expected_punch_test() {
       at: moment("12:00"),
       state: state.Invalid(inconsistency),
       decision: decision.Abort(decision.InconsistentState(inconsistency)),
+      registered: read([#(punch.LunchStart, "12:00")]),
       outcome: report.Refused,
     )
 
@@ -114,6 +131,7 @@ pub fn an_impossible_day_has_no_expected_punch_test() {
 Action: NONE
 Expected: UNKNOWN
 Current state: INVALID(expected ENTRY but found LUNCH_START)
+Punches: LUNCH_START@12:00
 Result: ABORTED
 Reason: acuttis shows an impossible day: expected ENTRY but found LUNCH_START"
 }
@@ -124,6 +142,12 @@ pub fn a_completed_day_expects_nothing_test() {
       at: moment("18:00"),
       state: state.Completed,
       decision: decision.Skip(decision.DayAlreadyComplete),
+      registered: read([
+        #(punch.Entry, "07:55"),
+        #(punch.LunchStart, "12:00"),
+        #(punch.LunchEnd, "13:02"),
+        #(punch.Exit, "17:31"),
+      ]),
       outcome: report.NothingToDo,
     )
 
@@ -131,6 +155,7 @@ pub fn a_completed_day_expects_nothing_test() {
 Action: NONE
 Expected: NONE
 Current state: COMPLETED
+Punches: ENTRY@07:55, LUNCH_START@12:00, LUNCH_END@13:02, EXIT@17:31
 Result: SKIPPED
 Reason: every punch of the day is already registered"
 }
@@ -141,6 +166,7 @@ pub fn a_dry_run_says_so_and_still_succeeds_test() {
       at: moment("08:00"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Withheld,
     )
 
@@ -148,6 +174,7 @@ pub fn a_dry_run_says_so_and_still_succeeds_test() {
 Action: ENTRY
 Expected: ENTRY
 Current state: WAITING(ENTRY)
+Punches: none
 Result: DRY_RUN
 Reason: dry run, the punch was decided but not registered"
   assert report.exit_code(record) == 0
@@ -159,12 +186,13 @@ pub fn the_one_line_form_keeps_every_field_test() {
       at: moment("07:55"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Confirmed(at: at("07:55")),
     )
 
   assert report.to_line(record)
     == "2026-08-12 07:55 result=SUCCESS action=ENTRY expected=ENTRY "
-    <> "state=WAITING(ENTRY) confirmation=07:55"
+    <> "state=WAITING(ENTRY) punches=\"none\" confirmation=07:55"
 }
 
 pub fn the_one_line_form_quotes_a_free_text_reason_test() {
@@ -173,6 +201,7 @@ pub fn the_one_line_form_quotes_a_free_text_reason_test() {
       at: moment("08:00"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
+      registered: [],
       outcome: report.Failed(
         stage: report.Authenticating,
         detail: "acuttis answered \"invalid credentials\"",
@@ -181,6 +210,6 @@ pub fn the_one_line_form_quotes_a_free_text_reason_test() {
 
   assert report.to_line(record)
     == "2026-08-12 08:00 result=FAILED action=ENTRY expected=ENTRY "
-    <> "state=WAITING(ENTRY) "
+    <> "state=WAITING(ENTRY) punches=\"none\" "
     <> "reason=\"authenticating failed: acuttis answered 'invalid credentials'\""
 }
