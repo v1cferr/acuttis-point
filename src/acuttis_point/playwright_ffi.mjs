@@ -229,8 +229,12 @@ export async function registerPunch(
   const { page } = session;
 
   // The newest row as it stands, so the click can be waited out by watching for
-  // it to change. Counting rows would not work: Acuttis caps the receipt at
-  // twenty, so a new punch pushes the oldest out and the count never grows.
+  // it to change.
+  //
+  // Counting rows would not work. The receipt is paginated — twenty rows, more
+  // loading as it is scrolled — so a punch arriving at the top leaves the count
+  // where it was. Watching the top row is what actually distinguishes "the
+  // click landed" from "nothing happened".
   const topBefore = (
     await page
       .locator(listSelector)

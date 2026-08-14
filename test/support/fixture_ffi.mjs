@@ -13,7 +13,8 @@
 
 import { createServer } from "node:http";
 
-// Acuttis caps its receipt at twenty rows.
+// Acuttis renders twenty rows and loads more on scroll. Only the first page is
+// read, so the fixture serves exactly that: the newest twenty.
 const RECEIPT_ROWS = 20;
 
 let state = null;
@@ -151,8 +152,8 @@ export function start(existingPunches, landsAt) {
     const server = createServer((request, response) => {
       const path = new URL(request.url, "http://localhost").pathname;
 
-      // Newest first and capped, the way the real receipt is: a new punch
-      // pushes the oldest row out, so the row count never grows.
+      // Newest first, one page deep, the way the real receipt renders: a new
+      // punch arrives at the top and the row count stays where it was.
       if (path === "/api/punches") {
         const newest = punches.slice(-RECEIPT_ROWS).reverse();
         response.writeHead(200, { "content-type": "application/json" });

@@ -18,6 +18,10 @@
 //// therefore distinguishable, and only the second one is a day worth acting
 //// on — which matters most in the entry window, the one moment where an empty
 //// day and a broken selector would otherwise both say "punch".
+////
+//// Only the first page is read, which is twenty rows: the receipt loads more as
+//// it is scrolled. Today is always on the first page, so scrolling would buy
+//// nothing here — but it does mean the row count is not a measure of anything.
 
 import acuttis_point/clock
 import acuttis_point/punch
