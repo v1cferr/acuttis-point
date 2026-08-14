@@ -117,6 +117,45 @@ a scheduled time a punch may still be registered. It is also what makes a
 catch-up run safe after the machine was asleep — a run that wakes up too late
 refuses to punch instead of inventing a time.
 
+### Spreading the punches, in one direction
+
+A timer can spread each punch over a jitter window so the day is not registered
+to the same minute twice. systemd can only ever delay a run, never bring it
+forward, and that is what decides how the schedule has to be written:
+
+```
+ENTRY_TIME and LUNCH_END   =  the time you want, minus the jitter
+LUNCH_START and EXIT_TIME  =  the time you want
+```
+
+Entry and the return from lunch then land at or before their wanted times,
+while lunch start and exit land at or after theirs. Every one of those
+directions lengthens the worked day, so it comes out at or above nominal and
+never under it — with nine minutes of jitter, somewhere between nominal and
+nominal plus 36 minutes.
+
+The jitter has to stay within `TIME_TOLERANCE_MINUTES`, or a delayed run would
+arrive after its own window had closed and refuse to register anything. The
+NixOS module asserts this; `scripts/schedule.sh` uses nine minutes against a
+default tolerance of ten.
+
+### Scheduling without NixOS
+
+`scripts/schedule.sh` installs a user systemd timer from the current `.env`,
+which is enough to try the automation out before committing it to the system
+configuration:
+
+```sh
+./scripts/schedule.sh entry --on 2026-08-14   # one punch, one day
+./scripts/schedule.sh all                     # every punch, every work day
+./scripts/schedule.sh --status                # what is scheduled now
+./scripts/schedule.sh --remove                # stop and forget it
+```
+
+Nothing reschedules itself: systemd is told the times up front, so the script
+has to be re-run after `.env` changes. It prints the next elapse, so the result
+is visible rather than assumed.
+
 Credentials never live in this repository. Locally they come from a `.env`
 that git ignores; in production systemd reads them from a secret store
 (sops-nix, agenix, Bitwarden) as an `EnvironmentFile`.
