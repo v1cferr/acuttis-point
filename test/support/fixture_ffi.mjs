@@ -109,7 +109,10 @@ const PAGE = String.raw`<!doctype html>
       await paintHistory();
     });
 
+    // "Voltar" closes the whole modal on the real site — it does NOT go back to
+    // the punch controls. Reaching them again means reopening from the trigger.
     button("Voltar").addEventListener("click", () => {
+      modal.hidden = true;
       receiptView.hidden = true;
       punchView.hidden = false;
     });

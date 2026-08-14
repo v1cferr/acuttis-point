@@ -239,16 +239,22 @@ export async function registerPunch(
       .catch(() => "")
   )?.trim();
 
-  const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
-  if (blocked) return blocked;
-
-  // The punch controls and the receipt are two views of the same modal, so
-  // having just read the day leaves the wrong one showing.
+  // "Voltar" does not go back to the punch controls — it closes the whole
+  // modal. So leaving the receipt and reopening from the trigger is the only
+  // way to reach the punch button, and it has to happen in that order: the
+  // modal is faded out rather than removed, so reopening before it has gone
+  // finds a button that is technically present and cannot be clicked.
   if (backSelector) {
     const back = page.locator(backSelector).first();
     if (await back.isVisible().catch(() => false)) {
       try {
         await back.click();
+        if (modalSelector) {
+          await page
+            .locator(modalSelector)
+            .first()
+            .waitFor({ state: "hidden", timeout: ROW_WAIT_MS });
+        }
       } catch (error) {
         return fail(
           "interface",
@@ -258,14 +264,18 @@ export async function registerPunch(
     }
   }
 
+  const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
+  if (blocked) return blocked;
+
   const button = page.locator(buttonSelector).first();
 
   try {
     await button.waitFor({ state: "visible" });
   } catch (error) {
-    return isTimeout(error)
-      ? fail("interface", `the punch button (${buttonSelector})`)
-      : fail("interface", error.message);
+    return fail(
+      "interface",
+      `the punch button (${buttonSelector}): ${error.message}`,
+    );
   }
 
   if (await button.isDisabled()) {
@@ -275,9 +285,10 @@ export async function registerPunch(
   try {
     await button.click();
   } catch (error) {
-    return isTimeout(error)
-      ? fail("unavailable", "the punch button never became clickable")
-      : fail("unavailable", error.message);
+    // Playwright's own message names what blocked the click — not visible, not
+    // stable, intercepted by another element. Replacing it with a phrase of my
+    // own once cost an afternoon of guessing.
+    return fail("unavailable", error.message);
   }
 
   // Back to the receipt so the caller can read the day again.
