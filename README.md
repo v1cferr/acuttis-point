@@ -228,6 +228,30 @@ Acuttis confirmation: 07:55
 Every reason other than an outright failure is taken from the decision itself,
 so the log cannot disagree with the rule that produced it.
 
+### Push notifications
+
+Setting `NOTIFY_URL` makes each run POST a notification. It is shaped for
+[ntfy](https://ntfy.sh) — title, priority and tags as headers, the record as the
+body — so any endpoint taking a POST works.
+
+| Result | Priority | Message |
+|---|---|---|
+| Registered | default | `ENTRY at 07:57` |
+| Refused, failed | high | the reason, same text as the log |
+| Nothing to do | low, silent | the reason |
+
+`NOTIFY_ON` decides which runs are worth a buzz: `always`, `action` (the
+default — silent when there was nothing to do) or `problem`.
+
+A configuration error notifies too, and that is deliberate: it means no punch
+happened at all, which is exactly when a message earns its keep. Failing to
+notify never changes a run's outcome — the punch has already happened or not,
+and a message that did not arrive does not change which.
+
+On ntfy the topic name is the only thing protecting a topic, so use a random
+one. The message names the punch and its time, so it does reach ntfy's servers
+in the clear; self-host if that matters.
+
 ## Deploying on NixOS
 
 The flake exposes a package and a module. The schedule is declared once: the

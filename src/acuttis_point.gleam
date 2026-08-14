@@ -9,6 +9,7 @@ import acuttis_point/clock
 import acuttis_point/config
 import acuttis_point/credentials
 import acuttis_point/discovery
+import acuttis_point/notification
 import acuttis_point/playwright
 import acuttis_point/report
 import acuttis_point/runner
@@ -29,10 +30,19 @@ type Setup {
   )
 }
 
+/// Where a run record goes once it exists.
+type Outputs {
+  Outputs(
+    log: Result(String, Nil),
+    notify_url: Result(String, Nil),
+    notify_on: notification.Trigger,
+  )
+}
+
 pub fn main() -> Nil {
   let environment = system.environment()
   let env = environment.values
-  let log = log_file(env)
+  let out = outputs(env)
 
   // Where configuration came from is worth saying out loud: a `.env` picked up
   // from a working directory should never be a surprise.
@@ -42,7 +52,7 @@ pub fn main() -> Nil {
   }
 
   case setup(env) {
-    Error(detail) -> report_bad_setup(log, detail)
+    Error(detail) -> report_bad_setup(out, detail)
     Ok(setup) -> {
       io.println(
         "acuttis-point: "
@@ -64,7 +74,10 @@ pub fn main() -> Nil {
             now: setup.now,
             port: port,
           )
-          |> promise.map(emit(log, _))
+          |> promise.await(fn(record) {
+            emit(out, record)
+            send(out, record)
+          })
       }
 
       // The promise keeps the process alive; the exit status is set once it
@@ -100,21 +113,53 @@ fn setup(env: Dict(String, String)) -> Result(Setup, String) {
 
 /// The configuration is what failed, so its timezone cannot be trusted for the
 /// timestamp. UTC still gives the record an honest one.
-fn report_bad_setup(log: Result(String, Nil), detail: String) -> Nil {
+fn report_bad_setup(out: Outputs, detail: String) -> Nil {
   case system.now("UTC") {
-    Ok(now) ->
-      emit(
-        log,
+    Ok(now) -> {
+      let record =
         report.Broke(
           at: now,
           stage: report.ReadingConfiguration,
           detail: detail,
-        ),
-      )
+        )
+      emit(out, record)
+      // A configuration error means no punch happened at all, which is exactly
+      // when a notification earns its keep.
+      let _ = send(out, record)
+      Nil
+    }
     Error(_) -> {
       io.println("acuttis-point: " <> detail)
       system.set_exit_status(1)
     }
+  }
+}
+
+/// Failing to notify never changes a run's outcome: the punch has already
+/// happened or not, and a message that did not arrive does not change which.
+fn send(out: Outputs, record: report.Report) -> promise.Promise(Nil) {
+  case out.notify_url {
+    Error(Nil) -> promise.resolve(Nil)
+    Ok(url) ->
+      case notification.wanted(out.notify_on, record) {
+        False -> promise.resolve(Nil)
+        True -> {
+          let message = notification.from_report(record)
+          use sent <- promise.await(system.notify(
+            url: url,
+            title: message.title,
+            body: message.body,
+            priority: message.priority,
+            tags: message.tags,
+          ))
+          case sent {
+            Ok(Nil) -> Nil
+            Error(error) ->
+              io.println("acuttis-point: " <> system.error_to_string(error))
+          }
+          promise.resolve(Nil)
+        }
+      }
   }
 }
 
@@ -125,11 +170,11 @@ fn announce(found: discovery.Discovery) -> Nil {
   system.set_exit_status(discovery.exit_code(found))
 }
 
-fn emit(log: Result(String, Nil), record: report.Report) -> Nil {
+fn emit(out: Outputs, record: report.Report) -> Nil {
   // One line to stdout, which under systemd is the journal.
   io.println(report.to_line(record))
 
-  case log {
+  case out.log {
     Error(Nil) -> Nil
     Ok(path) ->
       // A blank line after each block, so the file stays readable.
@@ -144,12 +189,32 @@ fn emit(log: Result(String, Nil), record: report.Report) -> Nil {
 }
 
 /// Read straight from the environment rather than from `Config`, so that a
-/// configuration error still reaches the log file.
-fn log_file(env: Dict(String, String)) -> Result(String, Nil) {
-  case dict.get(env, "LOG_FILE") {
+/// configuration error still reaches the log file and the phone.
+fn outputs(env: Dict(String, String)) -> Outputs {
+  let notify_on = case present(env, "NOTIFY_ON") {
+    Error(Nil) -> notification.OnAction
+    Ok(raw) ->
+      case notification.parse_trigger(raw) {
+        Ok(trigger) -> trigger
+        Error(detail) -> {
+          io.println("acuttis-point: NOTIFY_ON " <> detail <> ", using action")
+          notification.OnAction
+        }
+      }
+  }
+
+  Outputs(
+    log: present(env, "LOG_FILE"),
+    notify_url: present(env, "NOTIFY_URL"),
+    notify_on: notify_on,
+  )
+}
+
+fn present(env: Dict(String, String), key: String) -> Result(String, Nil) {
+  case dict.get(env, key) {
     Error(Nil) -> Error(Nil)
-    Ok(path) ->
-      case string.trim(path) {
+    Ok(value) ->
+      case string.trim(value) {
         "" -> Error(Nil)
         trimmed -> Ok(trimmed)
       }

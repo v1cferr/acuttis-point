@@ -8,6 +8,7 @@
 import acuttis_point/clock
 import gleam/dict.{type Dict}
 import gleam/javascript/array.{type Array}
+import gleam/javascript/promise.{type Promise}
 import gleam/list
 import gleam/string
 
@@ -27,6 +28,7 @@ pub type SystemError {
   /// but the alternative is trusting it blindly.
   ImpossibleClock(clock.ClockError)
   WriteFailed(path: String, detail: String)
+  NotifyFailed(url: String, detail: String)
 }
 
 /// The process environment, with a `.env` file underneath it.
@@ -137,6 +139,28 @@ pub fn now(timezone: String) -> Result(clock.Instant, SystemError) {
   }
 }
 
+/// POST a notification, shaped the way ntfy reads one: title, priority and tags
+/// as headers, the message as the body.
+///
+/// A failure here is returned rather than raised, because it must never change
+/// the outcome of a run: the punch has already happened or not, and a message
+/// that did not arrive does not change which.
+pub fn notify(
+  url url: String,
+  title title: String,
+  body body: String,
+  priority priority: String,
+  tags tags: String,
+) -> Promise(Result(Nil, SystemError)) {
+  post_notification(url, title, body, priority, tags)
+  |> promise.map(fn(detail) {
+    case detail {
+      "" -> Ok(Nil)
+      _ -> Error(NotifyFailed(url: url, detail: detail))
+    }
+  })
+}
+
 pub fn append_line(path: String, text: String) -> Result(Nil, SystemError) {
   case append_to_file(path, text <> "\n") {
     "" -> Ok(Nil)
@@ -149,6 +173,7 @@ pub fn error_to_string(error: SystemError) -> String {
     UnknownTimezone(timezone) -> "unknown timezone " <> timezone
     ImpossibleClock(_) -> "the system clock reported an impossible moment"
     WriteFailed(path:, detail:) -> "could not write " <> path <> ": " <> detail
+    NotifyFailed(url:, detail:) -> "could not notify " <> url <> ": " <> detail
   }
 }
 
@@ -170,6 +195,16 @@ fn clock_parts(timezone: String) -> Array(Int)
 /// Returns an empty string on success, the failure detail otherwise.
 @external(javascript, "./system_ffi.mjs", "appendToFile")
 fn append_to_file(path: String, text: String) -> String
+
+/// Same convention: an empty string means it arrived.
+@external(javascript, "./system_ffi.mjs", "postNotification")
+fn post_notification(
+  url: String,
+  title: String,
+  body: String,
+  priority: String,
+  tags: String,
+) -> Promise(String)
 
 /// Sets the status the process will exit with, rather than exiting now, so
 /// buffered output still reaches the journal.

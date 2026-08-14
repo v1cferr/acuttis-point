@@ -63,6 +63,24 @@ export function appendToFile(path, text) {
   }
 }
 
+// ntfy reads the title, priority and tags off headers and takes the body as the
+// message. Header values have to stay ASCII, which the notification module's
+// fixed titles and tags already are.
+export async function postNotification(url, title, body, priority, tags) {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Title: title, Priority: priority, Tags: tags },
+      body,
+      // A run must not hang on a notification service being slow.
+      signal: AbortSignal.timeout(10_000),
+    });
+    return response.ok ? "" : `answered ${response.status}`;
+  } catch (error) {
+    return error.message ?? String(error);
+  }
+}
+
 export function setExitStatus(status) {
   process.exitCode = status;
   return undefined;
