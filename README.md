@@ -10,8 +10,7 @@ Tracked in [V1C-73](https://v1cferr.atlassian.net/browse/V1C-73).
 
 The whole pipeline is in place and runs end to end: configuration, the
 decision rules, the Playwright adapter, the run record, and a NixOS service
-and timer. One thing is still missing before it can register a punch —
-`PUNCH_LIST_SELECTOR`, see [Finding the punch selectors](#finding-the-punch-selectors).
+and timer.
 
 Verified against the live site: reaching `/dashboard` and being redirected to
 `/signin`, filling and submitting the sign-in form, and recognising a rejected
@@ -125,11 +124,8 @@ that git ignores; in production systemd reads them from a secret store
 ### Finding the punch selectors
 
 Acuttis renders its interface in the browser, so the automation has to be told
-where to click. The sign-in selectors were read from the live sign-in page and
-carry working defaults.
-
-Every selector has a default read from the live application, so none of them
-normally needs setting. Reaching the punches takes two steps: an anchor opens
+where to click. Every selector has a default read from the live application, so
+none of them normally needs setting. Reaching the punches takes two steps: an anchor opens
 the punch modal, and a button inside it switches to the receipt, which is the
 only place they are listed.
 
