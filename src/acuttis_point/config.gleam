@@ -30,6 +30,10 @@ pub type Config {
     schedule: Schedule,
     /// How long after a scheduled time a punch may still be registered.
     tolerance_minutes: Int,
+    /// The shortest lunch break the schedule is allowed to be able to produce.
+    /// Not a target but a floor: a schedule whose worst case falls under it is
+    /// refused, rather than left to come out short on an unlucky day.
+    min_lunch_minutes: Int,
     timezone: String,
     /// Holidays, days off and anything else without an expedient.
     skip_dates: List(clock.Date),
@@ -63,6 +67,8 @@ pub type ConfigError {
   InsecureUrl(key: String, value: String)
   /// The configured times do not run forward through the day.
   ScheduleOutOfOrder(earlier: punch.Punch, later: punch.Punch)
+  /// The schedule could produce a lunch break shorter than allowed.
+  LunchCouldBeTooShort(guaranteed: Int, required: Int)
 }
 
 const default_base_url = "https://app.acuttis.com.br"
@@ -74,6 +80,10 @@ const default_timezone = "America/Sao_Paulo"
 const default_tolerance_minutes = 10
 
 const default_timeout_seconds = 30
+
+/// One hour, which is the legal minimum in Brazil for a working day over six
+/// hours. A floor rather than a default to aim at.
+const default_min_lunch_minutes = 60
 
 /// Largest accepted tolerance. Four hours is already generous; beyond that a
 /// late run would be registering a time that has little to do with reality.
@@ -102,6 +112,13 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     5,
     300,
   ))
+  use min_lunch_minutes <- result.try(bounded_int(
+    env,
+    "MIN_LUNCH_MINUTES",
+    default_min_lunch_minutes,
+    0,
+    480,
+  ))
   use headless <- result.try(boolean(env, "HEADLESS", True))
   use discover <- result.try(boolean(env, "DISCOVER", False))
   let session_file = optional(env, "SESSION_FILE")
@@ -111,12 +128,18 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use schedule <- result.try(
     ordered_schedule(Schedule(entry:, lunch_start:, lunch_end:, exit:)),
   )
+  use schedule <- result.try(long_enough_lunch(
+    schedule,
+    tolerance_minutes,
+    min_lunch_minutes,
+  ))
 
   Ok(Config(
     base_url:,
     work_days:,
     schedule:,
     tolerance_minutes:,
+    min_lunch_minutes:,
     timezone:,
     skip_dates:,
     dry_run:,
@@ -126,6 +149,34 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     session_file:,
     screenshot_dir:,
   ))
+}
+
+/// The shortest lunch this schedule could produce, in minutes.
+///
+/// Worst case in both directions at once: the punch leaving for lunch lands as
+/// late as its window allows, and the one returning lands as early as its window
+/// allows. Both punches can happen anywhere inside `[time, time + tolerance]`,
+/// so the floor is what the later start and the earlier return leave between
+/// them — and it does not depend on how the timer happens to be jittered.
+pub fn guaranteed_lunch_minutes(
+  schedule: Schedule,
+  tolerance_minutes: Int,
+) -> Int {
+  clock.minutes_between(from: schedule.lunch_start, to: schedule.lunch_end)
+  - tolerance_minutes
+}
+
+fn long_enough_lunch(
+  schedule: Schedule,
+  tolerance_minutes: Int,
+  required: Int,
+) -> Result(Schedule, ConfigError) {
+  let guaranteed = guaranteed_lunch_minutes(schedule, tolerance_minutes)
+  case guaranteed < required {
+    True ->
+      Error(LunchCouldBeTooShort(guaranteed: guaranteed, required: required))
+    False -> Ok(schedule)
+  }
 }
 
 pub fn scheduled_time(
@@ -166,7 +217,12 @@ pub fn describe(config: Config) -> String {
   <> int.to_string(config.tolerance_minutes)
   <> "m tz="
   <> config.timezone
-  <> " skipped="
+  <> " lunch>="
+  <> int.to_string(guaranteed_lunch_minutes(
+    config.schedule,
+    config.tolerance_minutes,
+  ))
+  <> "m skipped="
   <> int.to_string(list.length(config.skip_dates))
   <> " dry_run="
   <> bool_to_string(config.dry_run)
@@ -195,6 +251,13 @@ pub fn error_to_string(error: ConfigError) -> String {
       punch.to_string(later)
       <> " is scheduled before "
       <> punch.to_string(earlier)
+    LunchCouldBeTooShort(guaranteed:, required:) ->
+      "this schedule could produce a lunch break of only "
+      <> int.to_string(guaranteed)
+      <> " minutes, under the "
+      <> int.to_string(required)
+      <> " required; move LUNCH_END later, LUNCH_START earlier, or lower"
+      <> " TIME_TOLERANCE_MINUTES"
   }
 }
 

@@ -95,6 +95,21 @@ in
       '';
     };
 
+    minLunchMinutes = lib.mkOption {
+      type = lib.types.ints.between 0 480;
+      default = 60;
+      description = ''
+        The shortest lunch break the schedule is allowed to be able to produce.
+        A floor rather than a target: a schedule whose worst case falls under it
+        is refused at build time.
+
+        The worst case is both windows going the wrong way at once — the punch
+        leaving for lunch landing as late as its tolerance allows, and the one
+        returning landing as early as its own. One hour is the legal minimum in
+        Brazil for a working day over six hours.
+      '';
+    };
+
     timezone = lib.mkOption {
       type = lib.types.str;
       default = "America/Sao_Paulo";
@@ -231,6 +246,22 @@ in
         '';
       }
       {
+        assertion =
+          let
+            minutes = time: lib.toInt (lib.substring 0 2 time) * 60 + lib.toInt (lib.substring 3 2 time);
+            guaranteed =
+              minutes cfg.schedule.lunchEnd - minutes cfg.schedule.lunchStart - cfg.toleranceMinutes;
+          in
+          guaranteed >= cfg.minLunchMinutes;
+        message = ''
+          services.acuttis-point: this schedule could produce a lunch break
+          shorter than minLunchMinutes (${toString cfg.minLunchMinutes}).
+          The worst case is lunchStart landing ${toString cfg.toleranceMinutes}
+          minutes late and lunchEnd landing on time. Move lunchEnd later,
+          lunchStart earlier, or lower toleranceMinutes.
+        '';
+      }
+      {
         assertion = cfg.jitterSeconds <= cfg.toleranceMinutes * 60;
         message = ''
           services.acuttis-point.jitterSeconds (${toString cfg.jitterSeconds})
@@ -267,6 +298,7 @@ in
         EXIT_TIME = cfg.schedule.exit;
         WORK_DAYS = lib.concatStringsSep "," cfg.workDays;
         TIME_TOLERANCE_MINUTES = toString cfg.toleranceMinutes;
+        MIN_LUNCH_MINUTES = toString cfg.minLunchMinutes;
         TIMEZONE = cfg.timezone;
         SKIP_DATES = lib.concatStringsSep "," cfg.skipDates;
         DRY_RUN = boolean cfg.dryRun;
