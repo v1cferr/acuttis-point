@@ -37,7 +37,11 @@ in
 
         # Close enough to the mark that the tolerance window does most of the
         # work rather than being spent on timer slack.
-        AccuracySec = "30s";
+        AccuracySec = "1s";
+
+        # Only ever a delay, never an advance, which is what decides how the
+        # schedule has to be written. See the option's description.
+        RandomizedDelaySec = cfg.jitterSeconds;
 
         # A machine asleep at the scheduled minute runs on resume instead of
         # skipping the punch. This is only safe because a run that resumes too

@@ -114,6 +114,25 @@ in
       description = "Decide and log, but never register a punch.";
     };
 
+    jitterSeconds = lib.mkOption {
+      type = lib.types.ints.between 0 3600;
+      default = 0;
+      example = 540;
+      description = ''
+        Spread each punch randomly over this many seconds after its scheduled
+        time, so the day is not registered to the same minute twice.
+
+        systemd can only delay, never bring forward, which decides how the
+        schedule has to be written: set `schedule.entry` and `schedule.lunchEnd`
+        this many seconds earlier than the times actually wanted, and they land
+        at or before them while `lunchStart` and `exit` land at or after theirs.
+        Worked time then only ever comes out at or above the nominal day.
+
+        Must not exceed `toleranceMinutes`, or a delayed run would arrive after
+        its own window had closed and refuse to register anything.
+      '';
+    };
+
     punchListSelector = lib.mkOption {
       type = lib.types.nonEmptyStr;
       example = ".punch-row";
@@ -161,6 +180,15 @@ in
         message = ''
           services.acuttis-point.environmentFile must not be in the Nix store:
           everything there is world readable.
+        '';
+      }
+      {
+        assertion = cfg.jitterSeconds <= cfg.toleranceMinutes * 60;
+        message = ''
+          services.acuttis-point.jitterSeconds (${toString cfg.jitterSeconds})
+          is longer than toleranceMinutes (${toString cfg.toleranceMinutes}),
+          so a delayed run could arrive after its own window had closed and
+          refuse to register anything.
         '';
       }
     ];
