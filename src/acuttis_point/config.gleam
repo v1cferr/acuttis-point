@@ -43,6 +43,13 @@ pub type Config {
     /// which is the only way to look at the real interface with no chance of
     /// registering a punch.
     discover: Bool,
+    /// Where to keep the browser's cookies between runs, so four runs a day do
+    /// not mean four sign-ins. The file is a credential: it stands in for the
+    /// password until it expires.
+    session_file: Result(String, Nil),
+    /// Where to drop a screenshot when a run fails. The page at that moment is
+    /// the only witness to an interface that changed.
+    screenshot_dir: Result(String, Nil),
   )
 }
 
@@ -97,6 +104,8 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   ))
   use headless <- result.try(boolean(env, "HEADLESS", True))
   use discover <- result.try(boolean(env, "DISCOVER", False))
+  let session_file = optional(env, "SESSION_FILE")
+  let screenshot_dir = optional(env, "SCREENSHOT_DIR")
 
   let timezone = lookup_or(env, "TIMEZONE", default_timezone)
   use schedule <- result.try(
@@ -114,6 +123,8 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     timeout_seconds:,
     headless:,
     discover:,
+    session_file:,
+    screenshot_dir:,
   ))
 }
 
@@ -246,6 +257,14 @@ fn lookup(
         "" -> Error(MissingKey(key))
         trimmed -> Ok(trimmed)
       }
+  }
+}
+
+/// Absent or blank both mean "not configured".
+fn optional(env: Dict(String, String), key: String) -> Result(String, Nil) {
+  case lookup(env, key) {
+    Ok(value) -> Ok(value)
+    Error(_) -> Error(Nil)
   }
 }
 

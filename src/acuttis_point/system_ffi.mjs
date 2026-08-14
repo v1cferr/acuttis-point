@@ -1,5 +1,5 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 
 // A Gleam tuple is a JavaScript array, so `Object.entries` already has the
 // shape of `Array(#(String, String))`.
@@ -63,17 +63,57 @@ export function appendToFile(path, text) {
   }
 }
 
-// ntfy reads the title, priority and tags off headers and takes the body as the
-// message. Header values have to stay ASCII, which the notification module's
-// fixed titles and tags already are.
-export async function postNotification(url, title, body, priority, tags) {
+// HTTP headers are ASCII. Everything this project puts in a title is already
+// English, but a failure detail can carry page text in any language, so the
+// header path is transliterated rather than trusted.
+const asciiOnly = (value) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7e]/g, "?");
+
+// Two shapes, because ntfy takes an attachment as the request *body*:
+//   no file  → JSON body, so the message survives any alphabet
+//   a file   → the bytes as body, and the message moves into headers
+export async function postNotification(
+  url,
+  title,
+  body,
+  priority,
+  tags,
+  attachment,
+) {
+  const levels = { min: 1, low: 2, default: 3, high: 4, urgent: 5 };
+  const level = levels[priority] ?? 3;
+
   try {
+    const request = attachment
+      ? {
+          method: "PUT",
+          headers: {
+            Title: asciiOnly(title),
+            Message: asciiOnly(body),
+            Priority: String(level),
+            Tags: tags,
+            Filename: basename(attachment),
+          },
+          body: readFileSync(attachment),
+        }
+      : {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            message: body,
+            priority: level,
+            tags: tags ? tags.split(",") : [],
+          }),
+        };
+
     const response = await fetch(url, {
-      method: "POST",
-      headers: { Title: title, Priority: priority, Tags: tags },
-      body,
+      ...request,
       // A run must not hang on a notification service being slow.
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(20_000),
     });
     return response.ok ? "" : `answered ${response.status}`;
   } catch (error) {

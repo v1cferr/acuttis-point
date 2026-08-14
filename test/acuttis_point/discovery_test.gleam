@@ -59,6 +59,10 @@ fn fake(
         record("describe")
         promise.resolve(describe)
       },
+      capture: fn(_session, _path) {
+        record("capture")
+        promise.resolve(Ok(Nil))
+      },
       close: fn(_session) {
         record("close")
         promise.resolve(Nil)

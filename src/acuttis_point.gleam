@@ -74,9 +74,9 @@ pub fn main() -> Nil {
             now: setup.now,
             port: port,
           )
-          |> promise.await(fn(record) {
-            emit(out, record)
-            send(out, record)
+          |> promise.await(fn(finished) {
+            emit(out, finished.report)
+            send(out, finished.report, finished.screenshot)
           })
       }
 
@@ -125,7 +125,7 @@ fn report_bad_setup(out: Outputs, detail: String) -> Nil {
       emit(out, record)
       // A configuration error means no punch happened at all, which is exactly
       // when a notification earns its keep.
-      let _ = send(out, record)
+      let _ = send(out, record, Error(Nil))
       Nil
     }
     Error(_) -> {
@@ -137,7 +137,11 @@ fn report_bad_setup(out: Outputs, detail: String) -> Nil {
 
 /// Failing to notify never changes a run's outcome: the punch has already
 /// happened or not, and a message that did not arrive does not change which.
-fn send(out: Outputs, record: report.Report) -> promise.Promise(Nil) {
+fn send(
+  out: Outputs,
+  record: report.Report,
+  screenshot: Result(String, Nil),
+) -> promise.Promise(Nil) {
   case out.notify_url {
     Error(Nil) -> promise.resolve(Nil)
     Ok(url) ->
@@ -151,6 +155,9 @@ fn send(out: Outputs, record: report.Report) -> promise.Promise(Nil) {
             body: message.body,
             priority: message.priority,
             tags: message.tags,
+            // ntfy takes an attachment as the request body, so a screenshot
+            // rides along with the message instead of arriving separately.
+            attachment: screenshot,
           ))
           case sent {
             Ok(Nil) -> Nil

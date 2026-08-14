@@ -34,7 +34,12 @@ pub fn port(
 ) -> browser.Port(Session) {
   browser.Port(
     open: fn() {
-      ffi_open(settings.headless, settings.timeout_seconds * 1000)
+      ffi_open(
+        settings.headless,
+        settings.timeout_seconds * 1000,
+        // Empty means do not persist: every run signs in from scratch.
+        result.unwrap(settings.session_file, ""),
+      )
       |> promise.map(translate)
     },
     sign_in: fn(session, secrets) {
@@ -94,6 +99,15 @@ pub fn port(
         |> result.map(array.to_list)
       })
     },
+    capture: fn(session, path) {
+      ffi_screenshot(session, path)
+      |> promise.map(fn(detail) {
+        case detail {
+          "" -> Ok(Nil)
+          _ -> Error(browser.UnexpectedResponse(detail))
+        }
+      })
+    },
     close: ffi_close,
   )
 }
@@ -126,7 +140,12 @@ fn translate(
 fn ffi_open(
   headless: Bool,
   timeout_ms: Int,
+  session_path: String,
 ) -> Promise(Result(Session, Failure))
+
+/// Empty string on success, the failure detail otherwise.
+@external(javascript, "./playwright_ffi.mjs", "screenshot")
+fn ffi_screenshot(session: Session, path: String) -> Promise(String)
 
 @external(javascript, "./playwright_ffi.mjs", "signIn")
 fn ffi_sign_in(

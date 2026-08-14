@@ -48,6 +48,10 @@ pub type Port(session) {
     /// nothing: it is how the punch selectors get found without risking a
     /// click that registers a real punch.
     describe: fn(session) -> Promise(Result(List(String), BrowserError)),
+    /// Save a picture of the page as it stands, at the given path. Called only
+    /// when a run went wrong: the page at that moment is the only witness to an
+    /// interface that changed.
+    capture: fn(session, String) -> Promise(Result(Nil, BrowserError)),
     /// Best effort. A run has already happened or not by the time it is called,
     /// so a failure here has nothing left to change.
     close: fn(session) -> Promise(Nil),

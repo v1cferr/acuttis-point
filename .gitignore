@@ -20,3 +20,6 @@ result-*
 # Runtime artifacts
 logs/
 screenshots/
+
+# The saved browser session stands in for the password until it expires
+*session*.json

@@ -29,6 +29,7 @@ import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/list
 import gleam/string
+import support/files
 import support/fixture
 
 const workday = "2026-08-12"
@@ -94,7 +95,7 @@ fn against(
   let assert Ok(settings) = config.from_env(settings_env)
   let assert Ok(secrets) = credentials.from_env(settings_env)
 
-  use record <- promise.await(runner.run(
+  use finished <- promise.await(runner.run(
     settings: settings,
     secrets: secrets,
     now: moment(now),
@@ -102,7 +103,7 @@ fn against(
   ))
 
   use _ <- promise.await(fixture.stop())
-  promise.resolve(record)
+  promise.resolve(finished.report)
 }
 
 pub fn a_due_punch_is_registered_through_a_real_browser_test() {
@@ -265,7 +266,7 @@ pub fn a_punch_is_confirmed_even_though_the_receipt_is_full_test() {
   let assert Ok(settings) = config.from_env(settings_env)
   let assert Ok(secrets) = credentials.from_env(settings_env)
 
-  use record <- promise.await(runner.run(
+  use finished <- promise.await(runner.run(
     settings: settings,
     secrets: secrets,
     now: moment("12:04"),
@@ -273,10 +274,61 @@ pub fn a_punch_is_confirmed_even_though_the_receipt_is_full_test() {
   ))
   use _ <- promise.await(fixture.stop())
 
-  let #(_, chosen, outcome) = decided(record)
+  let #(_, chosen, outcome) = decided(finished.report)
   assert chosen
     == decision.Register(punch: punch.LunchStart, expected_at: at("12:00"))
   assert outcome == report.Confirmed(at: at("12:04"))
+  promise.resolve(Nil)
+}
+
+// Four runs a day should not mean four sign-ins. The fixture only ever renders
+// the form when it has no session, so a second run that never sees the username
+// field is the proof: it went straight to the dashboard.
+pub fn a_saved_session_skips_the_sign_in_form_test() {
+  let session = "build/e2e-session.json"
+  files.remove(session)
+
+  use base_url <- promise.await(fixture.start(
+    registered: list.append(yesterday, [today_at("07:58")]),
+    lands_at: today_at("12:04"),
+  ))
+
+  let settings_env =
+    env(base_url, [#("SESSION_FILE", session), #("DRY_RUN", "true")])
+  let assert Ok(settings) = config.from_env(settings_env)
+  let assert Ok(secrets) = credentials.from_env(settings_env)
+  let page_selectors = selectors.from_env(settings_env)
+
+  // Primeira: passa pelo formulário e salva a sessão.
+  use first <- promise.await(runner.run(
+    settings: settings,
+    secrets: secrets,
+    now: moment("12:04"),
+    port: playwright.port(settings, page_selectors),
+  ))
+  let #(_, _, first_outcome) = decided(first.report)
+  assert first_outcome == report.Withheld
+
+  // Segunda: com a sessão no lugar, uma senha errada não faria diferença —
+  // se ela chegasse ao formulário, a rodada quebraria em Authenticating.
+  let assert Ok(wrong) =
+    credentials.from_env(
+      dict.from_list([
+        #("ACUTTIS_USERNAME", fixture.username),
+        #("ACUTTIS_PASSWORD", "esta-senha-nao-serve"),
+      ]),
+    )
+  use second <- promise.await(runner.run(
+    settings: settings,
+    secrets: wrong,
+    now: moment("12:04"),
+    port: playwright.port(settings, page_selectors),
+  ))
+  use _ <- promise.await(fixture.stop())
+
+  let #(day, _, second_outcome) = decided(second.report)
+  assert day == state.Waiting(punch.LunchStart)
+  assert second_outcome == report.Withheld
   promise.resolve(Nil)
 }
 

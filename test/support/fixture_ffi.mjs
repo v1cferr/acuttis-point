@@ -5,6 +5,10 @@
 //
 // The punch list lives on the server so a test can inspect it afterwards, and
 // so it survives a second browser session.
+//
+// The sign-in flag goes in localStorage, not sessionStorage: Playwright's
+// storageState captures cookies and localStorage only, and an SPA keeping its
+// token in localStorage is the commoner shape anyway.
 
 import { createServer } from "node:http";
 
@@ -56,7 +60,7 @@ const PAGE = String.raw`<!doctype html>
         username.value === CREDENTIALS.username &&
         password.value === CREDENTIALS.password
       ) {
-        sessionStorage.setItem("signedIn", "yes");
+        localStorage.setItem("signedIn", "yes");
         renderDashboard();
       } else {
         root.querySelector("#signin_error").textContent = "Credenciais inválidas";
@@ -127,7 +131,7 @@ const PAGE = String.raw`<!doctype html>
       .join("");
   }
 
-  if (sessionStorage.getItem("signedIn")) {
+  if (localStorage.getItem("signedIn")) {
     renderDashboard();
   } else {
     renderSignIn();

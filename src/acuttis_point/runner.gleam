@@ -17,24 +17,81 @@ import acuttis_point/punch
 import acuttis_point/report
 import acuttis_point/state
 import gleam/javascript/promise.{type Promise}
+import gleam/result
+import gleam/string
+
+/// A finished run: what happened, and the screenshot of the page at the moment
+/// it went wrong, when one was taken.
+pub type Completed {
+  Completed(report: report.Report, screenshot: Result(String, Nil))
+}
 
 pub fn run(
   settings settings: config.Config,
   secrets secrets: credentials.Credentials,
   now now: clock.Instant,
   port port: browser.Port(session),
-) -> Promise(report.Report) {
+) -> Promise(Completed) {
   use opened <- promise.await(port.open())
 
   case opened {
-    Error(error) -> promise.resolve(broke(now, report.StartingBrowser, error))
+    Error(error) ->
+      // Nothing was opened, so there is no page to photograph either.
+      promise.resolve(Completed(
+        report: broke(now, report.StartingBrowser, error),
+        screenshot: Error(Nil),
+      ))
     Ok(session) -> {
-      use result <- promise.await(visit(settings, secrets, now, port, session))
+      use record <- promise.await(visit(settings, secrets, now, port, session))
+      // Taken while the page still exists: it is the only witness to an
+      // interface that changed under us.
+      use shot <- promise.await(capture(settings, now, port, session, record))
       // The browser is closed whatever happened, so a failed run does not
       // leave a Chromium behind for the next timer to trip over.
       use _ <- promise.await(port.close(session))
-      promise.resolve(result)
+      promise.resolve(Completed(report: record, screenshot: shot))
     }
+  }
+}
+
+/// Only for a run that broke. A refusal is a decision rather than a
+/// malfunction, and a late run refusing its window every day would fill a disk
+/// with pictures of a page that was working fine.
+fn capture(
+  settings: config.Config,
+  now: clock.Instant,
+  port: browser.Port(session),
+  session: session,
+  record: report.Report,
+) -> Promise(Result(String, Nil)) {
+  case settings.screenshot_dir, broken_at(record) {
+    Ok(dir), Ok(stage) -> {
+      let path =
+        dir
+        <> "/"
+        <> clock.date_to_string(now.date)
+        <> "-"
+        <> string.replace(clock.time_to_string(now.time), each: ":", with: "")
+        <> "-"
+        <> string.replace(report.stage_to_string(stage), each: " ", with: "-")
+        <> ".png"
+
+      use taken <- promise.await(port.capture(session, path))
+      promise.resolve(
+        taken
+        |> result.replace(path)
+        |> result.replace_error(Nil),
+      )
+    }
+    _, _ -> promise.resolve(Error(Nil))
+  }
+}
+
+fn broken_at(record: report.Report) -> Result(report.Stage, Nil) {
+  case record {
+    report.Broke(stage:, ..) -> Ok(stage)
+    report.Decided(outcome: report.Failed(stage:, ..), ..) -> Ok(stage)
+    _ -> Error(Nil)
   }
 }
 

@@ -139,6 +139,10 @@ fn fake(
         record("describe")
         promise.resolve(Ok(["url: /dashboard"]))
       },
+      capture: fn(_session, _path) {
+        record("capture")
+        promise.resolve(Ok(Nil))
+      },
       close: fn(_session) {
         record("close")
         promise.resolve(Nil)
@@ -166,13 +170,13 @@ fn go(
   overrides: List(#(String, String)),
 ) -> Promise(#(report.Report, spy.Cell(Journal))) {
   let #(port, cell) = fake(behaviour, existing, at(now))
-  use record <- promise.await(runner.run(
+  use finished <- promise.await(runner.run(
     settings: settings(overrides),
     secrets: secrets(),
     now: moment(now),
     port: port,
   ))
-  promise.resolve(#(record, cell))
+  promise.resolve(#(finished.report, cell))
 }
 
 // --- tests ------------------------------------------------------------------
@@ -380,6 +384,57 @@ pub fn a_session_that_expires_during_confirmation_fails_test() {
         stage: report.ConfirmingPunch,
         detail: "the session expired mid-run",
       ),
+    )
+  promise.resolve(Nil)
+}
+
+// A screenshot is the only witness to an interface that changed, so it has to
+// be taken while the page still exists — before close.
+pub fn a_broken_run_is_photographed_before_the_browser_closes_test() {
+  let changed =
+    Behaviour(..working(), first_read: Error(browser.SessionExpired))
+  use #(_, cell) <- promise.await(
+    go(changed, [], "08:03", [#("SCREENSHOT_DIR", "/tmp/acuttis-shots")]),
+  )
+
+  assert calls(cell) == ["open", "sign_in", "read_punches", "capture", "close"]
+  promise.resolve(Nil)
+}
+
+// A refusal is a decision rather than a malfunction: a late run refusing its
+// window every day must not fill a disk with pictures of a working page.
+pub fn a_refusal_is_not_photographed_test() {
+  use #(_, cell) <- promise.await(
+    go(working(), [], "11:00", [#("SCREENSHOT_DIR", "/tmp/acuttis-shots")]),
+  )
+
+  assert !list.contains(calls(cell), "capture")
+  promise.resolve(Nil)
+}
+
+pub fn nothing_is_photographed_without_a_directory_test() {
+  let changed =
+    Behaviour(..working(), first_read: Error(browser.SessionExpired))
+  use #(_, cell) <- promise.await(go(changed, [], "08:03", []))
+
+  assert !list.contains(calls(cell), "capture")
+  promise.resolve(Nil)
+}
+
+pub fn the_screenshot_path_names_the_moment_and_the_stage_test() {
+  let changed =
+    Behaviour(..working(), first_read: Error(browser.SessionExpired))
+  let #(port, _) = fake(changed, [], at("08:03"))
+  use finished <- promise.await(runner.run(
+    settings: settings([#("SCREENSHOT_DIR", "/tmp/acuttis-shots")]),
+    secrets: secrets(),
+    now: moment("08:03"),
+    port: port,
+  ))
+
+  assert finished.screenshot
+    == Ok(
+      "/tmp/acuttis-shots/2026-08-12-0803-reading-the-registered-punches.png",
     )
   promise.resolve(Nil)
 }

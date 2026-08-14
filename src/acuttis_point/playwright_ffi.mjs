@@ -1,4 +1,6 @@
 import { Result$Ok, Result$Error } from "../gleam.mjs";
+import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { dirname } from "node:path";
 import { chromium } from "playwright-core";
 
 // Details go into a log, so they are capped: a Playwright error can otherwise
@@ -20,18 +22,56 @@ const isTimeout = (error) =>
 
 const onSignInPage = (page) => new URL(page.url()).pathname.startsWith("/signin");
 
-export async function open(headless, timeoutMs) {
+// `sessionPath` empty means do not persist anything: every run signs in.
+export async function open(headless, timeoutMs, sessionPath) {
   try {
     const browser = await chromium.launch({ headless });
-    const context = await browser.newContext({
-      locale: "pt-BR",
-      timezoneId: "America/Sao_Paulo",
-    });
+
+    const options = { locale: "pt-BR", timezoneId: "America/Sao_Paulo" };
+    const saved = sessionPath && existsSync(sessionPath);
+
+    // A saved session is a convenience, never a requirement. A file that is
+    // corrupt, or from an incompatible Playwright, would otherwise fail the
+    // whole run; throwing it away and signing in again is the obvious fallback.
+    let context;
+    try {
+      context = await browser.newContext(
+        saved ? { ...options, storageState: sessionPath } : options,
+      );
+    } catch {
+      rmSync(sessionPath, { force: true });
+      context = await browser.newContext(options);
+    }
     context.setDefaultTimeout(timeoutMs);
     const page = await context.newPage();
-    return ok({ browser, context, page });
+    return ok({ browser, context, page, sessionPath });
   } catch (error) {
     return fail("launch", error.message);
+  }
+}
+
+// The storage state carries the session cookie, which stands in for the password
+// until it expires. Written 0600, and never anywhere the store can see.
+function saveSession(session) {
+  const { context, sessionPath } = session;
+  if (!sessionPath) return Promise.resolve();
+  return context
+    .storageState({ path: sessionPath })
+    .then(() => {
+      chmodSync(sessionPath, 0o600);
+    })
+    .catch(() => {});
+}
+
+export async function screenshot(session, path) {
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    await session.page.screenshot({ path, fullPage: true });
+    // The punch modal shows a name and a CPF, so the file is personal data.
+    chmodSync(path, 0o600);
+    return "";
+  } catch (error) {
+    return error.message ?? String(error);
   }
 }
 
@@ -55,8 +95,12 @@ export async function signIn(
   }
 
   // Acuttis sends an unauthenticated visitor to /signin. Landing anywhere else
-  // means a session is already in place and there is nothing to sign in to.
+  // means a session is already in place and there is nothing to sign in to —
+  // which is the whole point of keeping the storage state between runs.
   if (!onSignInPage(page)) {
+    await page.waitForLoadState("networkidle").catch(() => {});
+    // Refresh it anyway: the cookie's expiry moves as it is used.
+    await saveSession(session);
     return ok(undefined);
   }
 
@@ -92,6 +136,8 @@ export async function signIn(
   // still has to fetch the day, and reading before that lands would report an
   // empty day that is only empty yet.
   await page.waitForLoadState("networkidle").catch(() => {});
+
+  await saveSession(session);
 
   return ok(undefined);
 }

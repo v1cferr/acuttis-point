@@ -10,6 +10,7 @@ import gleam/dict.{type Dict}
 import gleam/javascript/array.{type Array}
 import gleam/javascript/promise.{type Promise}
 import gleam/list
+import gleam/result
 import gleam/string
 
 /// Where configuration was read from.
@@ -151,8 +152,16 @@ pub fn notify(
   body body: String,
   priority priority: String,
   tags tags: String,
+  attachment attachment: Result(String, Nil),
 ) -> Promise(Result(Nil, SystemError)) {
-  post_notification(url, title, body, priority, tags)
+  post_notification(
+    url,
+    title,
+    body,
+    priority,
+    tags,
+    result.unwrap(attachment, ""),
+  )
   |> promise.map(fn(detail) {
     case detail {
       "" -> Ok(Nil)
@@ -196,7 +205,8 @@ fn clock_parts(timezone: String) -> Array(Int)
 @external(javascript, "./system_ffi.mjs", "appendToFile")
 fn append_to_file(path: String, text: String) -> String
 
-/// Same convention: an empty string means it arrived.
+/// Same convention: an empty string means it arrived. An empty `attachment`
+/// means there is no file to send.
 @external(javascript, "./system_ffi.mjs", "postNotification")
 fn post_notification(
   url: String,
@@ -204,6 +214,7 @@ fn post_notification(
   body: String,
   priority: String,
   tags: String,
+  attachment: String,
 ) -> Promise(String)
 
 /// Sets the status the process will exit with, rather than exiting now, so
