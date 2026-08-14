@@ -259,6 +259,64 @@ pub fn the_outcome_carries_the_state_it_decided_from_test() {
   assert outcome.state == state.Waiting(punch.LunchStart)
 }
 
+// The end-of-day sweep rests entirely on this: once the last window has closed,
+// no state of the day can produce a punch. The sweep can only stay quiet or
+// raise the alarm, which is why it is safe to schedule at all.
+pub fn after_the_last_window_nothing_can_be_registered_test() {
+  let sweep = moment(workday, "18:30")
+  let entry = punches([#(punch.Entry, "08:00")])
+  let lunch = list.append(entry, punches([#(punch.LunchStart, "12:00")]))
+  let back = list.append(lunch, punches([#(punch.LunchEnd, "14:00")]))
+  let full = list.append(back, punches([#(punch.Exit, "17:30")]))
+
+  list.each([[], entry, lunch, back, full], fn(registered) {
+    let registers = case decide(sweep, registered) {
+      decision.Register(..) -> True
+      _ -> False
+    }
+    assert !registers
+  })
+}
+
+// And it does raise the alarm: an unfinished day refuses, which exits non-zero
+// and arrives as a high-priority notification naming the punch that is missing.
+pub fn the_sweep_names_the_punch_that_is_missing_test() {
+  let sweep = moment(workday, "18:30")
+
+  assert decide(sweep, [])
+    == decision.Abort(decision.WindowClosed(
+      punch: punch.Entry,
+      expected_at: at("08:00"),
+      minutes_late: 630,
+    ))
+
+  let missing_exit =
+    punches([
+      #(punch.Entry, "08:00"),
+      #(punch.LunchStart, "12:00"),
+      #(punch.LunchEnd, "14:00"),
+    ])
+  assert decide(sweep, missing_exit)
+    == decision.Abort(decision.WindowClosed(
+      punch: punch.Exit,
+      expected_at: at("17:30"),
+      minutes_late: 60,
+    ))
+}
+
+// A finished day says nothing, so the sweep is silent on the days it should be.
+pub fn the_sweep_is_silent_on_a_finished_day_test() {
+  let full =
+    punches([
+      #(punch.Entry, "08:00"),
+      #(punch.LunchStart, "12:00"),
+      #(punch.LunchEnd, "14:00"),
+      #(punch.Exit, "17:30"),
+    ])
+  assert decide(moment(workday, "18:30"), full)
+    == decision.Skip(decision.DayAlreadyComplete)
+}
+
 pub fn action_to_string_names_only_a_real_punch_test() {
   assert decision.action_to_string(decision.Register(punch.Exit, at("17:30")))
     == "EXIT"

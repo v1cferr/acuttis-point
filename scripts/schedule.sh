@@ -7,9 +7,16 @@
 # result is visible rather than assumed.
 #
 #   ./scripts/schedule.sh entry --on 2026-08-14   one punch, one day
-#   ./scripts/schedule.sh all                     every punch, every work day
+#   ./scripts/schedule.sh all                     every punch + the sweep
+#   ./scripts/schedule.sh sweep                   only the end-of-day check
 #   ./scripts/schedule.sh --status                what is scheduled now
 #   ./scripts/schedule.sh --remove                stop and forget it
+#
+# `all` includes a sweep at SWEEP_TIME, after the last window has closed. It
+# cannot register anything — by then every window is shut, so the only outcomes
+# left are silence on a finished day and a loud refusal naming what is missing.
+# That is the point: a run that failed at midday notifies once, and a
+# notification missed is a punch forgotten. The sweep asks again at the end.
 #
 # Each punch fires between its configured time T and T+9 minutes, never before.
 # That is what keeps the drift one-directional: set ENTRY_TIME and LUNCH_END
@@ -93,9 +100,14 @@ declare -A TIME_KEY=(
   [lunch-start]=LUNCH_START
   [lunch-end]=LUNCH_END
   [exit]=EXIT_TIME
+  [sweep]=SWEEP_TIME
 )
 
-[[ "$punches" == "all" ]] && punches="entry,lunch-start,lunch-end,exit"
+if [[ "$punches" == "all" ]]; then
+  punches="entry,lunch-start,lunch-end,exit"
+  # Only if configured: without a sweep time there is nothing to schedule.
+  [[ -n "$(env_value SWEEP_TIME)" ]] && punches="$punches,sweep"
+fi
 
 calendar_lines=()
 for punch in ${punches//,/ }; do
@@ -118,6 +130,19 @@ for punch in ${punches//,/ }; do
     calendar_lines+=("OnCalendar=$days *-*-* $time:00")
   fi
 done
+
+# The sweep may only report, and that holds only once every window has closed.
+# Scheduled any earlier it would be free to register the very punch it exists to
+# report as missing.
+if [[ ",$punches," == *",sweep,"* ]]; then
+  to_minutes() { echo $((10#${1%%:*} * 60 + 10#${1##*:})); }
+  sweep_at="$(to_minutes "$(env_value SWEEP_TIME)")"
+  exit_at="$(to_minutes "$(env_value EXIT_TIME)")"
+  tolerance="$(env_value TIME_TOLERANCE_MINUTES)"
+  last_window=$((exit_at + ${tolerance:-10} + JITTER_SECONDS / 60))
+  ((sweep_at > last_window)) ||
+    die "SWEEP_TIME is not past the last window (exit + tolerance + jitter); it could register the punch it is meant to report as missing"
+fi
 
 echo "schedule: building the package"
 binary="$(nix build "$REPO#default" --no-link --print-out-paths)/bin/acuttis-point"

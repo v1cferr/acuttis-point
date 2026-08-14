@@ -17,13 +17,17 @@ let
   days = lib.concatStringsSep "," (map (day: systemdDay.${day}) cfg.workDays);
 
   # The same times the service reads as its schedule, so the timer fires exactly
-  # when a punch is due and never on a day the rules would refuse anyway.
-  times = [
-    cfg.schedule.entry
-    cfg.schedule.lunchStart
-    cfg.schedule.lunchEnd
-    cfg.schedule.exit
-  ];
+  # when a punch is due and never on a day the rules would refuse anyway. The
+  # sweep rides along on the same timer: it is the same program, and by its hour
+  # every window has closed, so it can only report.
+  times =
+    [
+      cfg.schedule.entry
+      cfg.schedule.lunchStart
+      cfg.schedule.lunchEnd
+      cfg.schedule.exit
+    ]
+    ++ lib.optional (cfg.sweepTime != null) cfg.sweepTime;
 in
 {
   config = lib.mkIf cfg.enable {

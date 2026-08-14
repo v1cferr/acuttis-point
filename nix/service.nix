@@ -72,6 +72,21 @@ in
       };
     };
 
+    sweepTime = lib.mkOption {
+      type = lib.types.nullOr timeType;
+      default = "18:30";
+      example = "18:30";
+      description = ''
+        An extra run after the last window has closed, purely to notice a day
+        that stayed unfinished. It cannot register anything: by then every
+        window is shut, so the only outcomes left are silence on a finished day
+        and a refusal naming the punch that is missing.
+
+        Worth having because a run that fails at midday notifies once, and a
+        notification missed is a punch forgotten. Null disables it.
+      '';
+    };
+
     workDays = lib.mkOption {
       type = lib.types.nonEmptyListOf weekdayType;
       default = [
@@ -259,6 +274,22 @@ in
           The worst case is lunchStart landing ${toString cfg.toleranceMinutes}
           minutes late and lunchEnd landing on time. Move lunchEnd later,
           lunchStart earlier, or lower toleranceMinutes.
+        '';
+      }
+      {
+        assertion =
+          let
+            minutes = time: lib.toInt (lib.substring 0 2 time) * 60 + lib.toInt (lib.substring 3 2 time);
+          in
+          cfg.sweepTime == null
+          || minutes cfg.sweepTime
+             > minutes cfg.schedule.exit + cfg.toleranceMinutes + cfg.jitterSeconds / 60;
+        message = ''
+          services.acuttis-point.sweepTime (${toString cfg.sweepTime}) is not
+          past the last window. The sweep may only report, and it can only be
+          trusted to do that once every window has closed — otherwise it would
+          be free to register the punch it is supposed to be reporting as
+          missing. Put it after exit plus toleranceMinutes plus the jitter.
         '';
       }
       {
