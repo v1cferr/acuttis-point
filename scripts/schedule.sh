@@ -159,7 +159,11 @@ UNIT
 } >"$UNIT_DIR/$UNIT_NAME.timer"
 
 systemctl --user daemon-reload
-systemctl --user enable --now "$UNIT_NAME.timer" >/dev/null
+systemctl --user enable "$UNIT_NAME.timer" >/dev/null
+# Restart, not just start: a timer that already fired its last OnCalendar sits in
+# `elapsed`, and neither daemon-reload nor `enable --now` recomputes it there. It
+# would silently keep the old schedule and never fire again.
+systemctl --user restart "$UNIT_NAME.timer"
 
 echo "schedule: installed"
 printf '  %s\n' "${calendar_lines[@]}"
