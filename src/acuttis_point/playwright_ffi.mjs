@@ -140,9 +140,16 @@ export async function registerPunch(
 ) {
   const { page } = session;
 
-  // How many rows there were, so the click can be waited out by watching for
-  // one more rather than by hoping the network went quiet.
-  const before = await page.locator(listSelector).count();
+  // The newest row as it stands, so the click can be waited out by watching for
+  // it to change. Counting rows would not work: Acuttis caps the receipt at
+  // twenty, so a new punch pushes the oldest out and the count never grows.
+  const topBefore = (
+    await page
+      .locator(listSelector)
+      .first()
+      .textContent()
+      .catch(() => "")
+  )?.trim();
 
   const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
   if (blocked) return blocked;
@@ -185,9 +192,7 @@ export async function registerPunch(
       : fail("unavailable", error.message);
   }
 
-  // Back to the receipt to watch the list grow. Waiting for a quiet network is
-  // not enough: the request is issued asynchronously by the click handler, so
-  // the network can still look idle at the moment it is asked.
+  // Back to the receipt so the caller can read the day again.
   const reopened = await openReceipt(
     page,
     triggerSelector,
@@ -197,16 +202,19 @@ export async function registerPunch(
   );
   if (reopened) return reopened;
 
-  try {
-    await page.locator(listSelector).nth(before).waitFor({ state: "attached" });
-  } catch {
-    // The punch may or may not have landed. Saying so is the safe direction:
-    // the next run reads the day and will skip if it did.
-    return fail(
-      "unexpected",
-      "the punch list did not grow after clicking the punch button",
-    );
-  }
+  // Give the new punch a chance to reach the top of the list. Best effort on
+  // purpose: whether the punch actually landed is decided by reading the day
+  // back, not here, and a slow refresh must not be reported as a failed punch.
+  await page
+    .waitForFunction(
+      ({ selector, previous }) => {
+        const newest = document.querySelector(selector);
+        return newest && newest.textContent.trim() !== previous;
+      },
+      { selector: listSelector, previous: topBefore ?? "" },
+      { timeout: ROW_WAIT_MS },
+    )
+    .catch(() => {});
 
   return ok(undefined);
 }

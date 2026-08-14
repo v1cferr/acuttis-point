@@ -8,6 +8,9 @@
 
 import { createServer } from "node:http";
 
+// Acuttis caps its receipt at twenty rows.
+const RECEIPT_ROWS = 20;
+
 let state = null;
 
 const PAGE = String.raw`<!doctype html>
@@ -117,8 +120,6 @@ const PAGE = String.raw`<!doctype html>
     const history = root.querySelector("#punch_history");
     if (!history) return;
     history.innerHTML = registered
-      .slice()
-      .reverse()
       .map(
         (row) =>
           ${"`"}<div class="styles_containerMarkingAddress__lLpPc">${"$"}{row}</div>${"`"},
@@ -142,9 +143,12 @@ export function start(existingPunches, landsAt) {
     const server = createServer((request, response) => {
       const path = new URL(request.url, "http://localhost").pathname;
 
+      // Newest first and capped, the way the real receipt is: a new punch
+      // pushes the oldest row out, so the row count never grows.
       if (path === "/api/punches") {
+        const newest = punches.slice(-RECEIPT_ROWS).reverse();
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify(punches));
+        response.end(JSON.stringify(newest));
         return;
       }
 

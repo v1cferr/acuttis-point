@@ -25,6 +25,7 @@ import acuttis_point/runner
 import acuttis_point/selectors
 import acuttis_point/state
 import gleam/dict
+import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/list
 import gleam/string
@@ -233,6 +234,46 @@ pub fn a_day_that_never_started_is_refused_after_its_window_test() {
     ))
   assert outcome == report.Refused
   assert fixture.punches() == yesterday
+  promise.resolve(Nil)
+}
+
+// The receipt is capped at twenty rows, so a new punch pushes the oldest one
+// out and the row count never grows. An earlier version waited for the count to
+// grow and reported a punch that had in fact landed as a failure.
+pub fn a_punch_is_confirmed_even_though_the_receipt_is_full_test() {
+  // Nineteen rows on earlier days, so today's punch makes the twentieth and the
+  // one after it evicts a row instead of adding one.
+  let filler =
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    |> list.map(fn(day) {
+      let padded = case day < 10 {
+        True -> "0" <> int.to_string(day)
+        False -> int.to_string(day)
+      }
+      padded <> "/07/2026 Qua - 08:00"
+    })
+
+  use base_url <- promise.await(fixture.start(
+    registered: list.append(filler, [today_at("07:58")]),
+    lands_at: today_at("12:04"),
+  ))
+
+  let settings_env = env(base_url, [])
+  let assert Ok(settings) = config.from_env(settings_env)
+  let assert Ok(secrets) = credentials.from_env(settings_env)
+
+  use record <- promise.await(runner.run(
+    settings: settings,
+    secrets: secrets,
+    now: moment("12:04"),
+    port: playwright.port(settings, selectors.from_env(settings_env)),
+  ))
+  use _ <- promise.await(fixture.stop())
+
+  let #(_, chosen, outcome) = decided(record)
+  assert chosen
+    == decision.Register(punch: punch.LunchStart, expected_at: at("12:00"))
+  assert outcome == report.Confirmed(at: at("12:04"))
   promise.resolve(Nil)
 }
 
