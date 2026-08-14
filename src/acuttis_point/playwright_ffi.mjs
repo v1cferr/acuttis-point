@@ -1,5 +1,12 @@
 import { Result$Ok, Result$Error } from "../gleam.mjs";
-import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { chromium } from "playwright-core";
 
@@ -28,19 +35,43 @@ export async function open(headless, timeoutMs, sessionPath) {
     const browser = await chromium.launch({ headless });
 
     const options = { locale: "pt-BR", timezoneId: "America/Sao_Paulo" };
-    const saved = sessionPath && existsSync(sessionPath);
 
-    // A saved session is a convenience, never a requirement. A file that is
-    // corrupt, or from an incompatible Playwright, would otherwise fail the
-    // whole run; throwing it away and signing in again is the obvious fallback.
+    // A saved session is a convenience, never a requirement: a file that cannot
+    // be read is thrown away and the run signs in normally.
+    let saved = null;
+    if (sessionPath && existsSync(sessionPath)) {
+      try {
+        saved = JSON.parse(readFileSync(sessionPath, "utf8"));
+      } catch {
+        rmSync(sessionPath, { force: true });
+      }
+    }
+
     let context;
     try {
       context = await browser.newContext(
-        saved ? { ...options, storageState: sessionPath } : options,
+        saved?.storage ? { ...options, storageState: saved.storage } : options,
       );
     } catch {
       rmSync(sessionPath, { force: true });
+      saved = null;
       context = await browser.newContext(options);
+    }
+
+    // Acuttis keeps its token in sessionStorage, which `storageState` does not
+    // capture — cookies and localStorage only. Restoring it takes an init
+    // script, so the values are in place before the application's own scripts
+    // look for them.
+    if (saved?.session) {
+      await context.addInitScript((dump) => {
+        try {
+          for (const [key, value] of Object.entries(JSON.parse(dump))) {
+            window.sessionStorage.setItem(key, value);
+          }
+        } catch {
+          // A dump that will not parse just means signing in again.
+        }
+      }, saved.session);
     }
     context.setDefaultTimeout(timeoutMs);
     const page = await context.newPage();
@@ -50,17 +81,28 @@ export async function open(headless, timeoutMs, sessionPath) {
   }
 }
 
-// The storage state carries the session cookie, which stands in for the password
-// until it expires. Written 0600, and never anywhere the store can see.
-function saveSession(session) {
-  const { context, sessionPath } = session;
-  if (!sessionPath) return Promise.resolve();
-  return context
-    .storageState({ path: sessionPath })
-    .then(() => {
-      chmodSync(sessionPath, 0o600);
-    })
-    .catch(() => {});
+// What is saved stands in for the password until it expires, and for Acuttis it
+// also carries name, e-mail and CPF — the application keeps all of it in
+// sessionStorage. Written 0600, and never anywhere the Nix store can see.
+//
+// Best effort throughout: failing to persist a session costs one extra sign-in,
+// which is not worth failing a run over.
+async function saveSession(session) {
+  const { context, page, sessionPath } = session;
+  if (!sessionPath) return;
+
+  try {
+    const storage = await context.storageState();
+    const dump = await page.evaluate(() => JSON.stringify(sessionStorage));
+
+    mkdirSync(dirname(sessionPath), { recursive: true });
+    writeFileSync(sessionPath, JSON.stringify({ storage, session: dump }), {
+      mode: 0o600,
+    });
+    chmodSync(sessionPath, 0o600);
+  } catch {
+    // Nothing to do: the next run signs in.
+  }
 }
 
 export async function screenshot(session, path) {
