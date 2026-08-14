@@ -5,6 +5,11 @@ import { chromium } from "playwright-core";
 // carry a page snapshot, and a log line is not the place for one.
 const DETAIL_LIMIT = 300;
 
+// How long to give the receipt's rows before concluding there are none. Short
+// on purpose: rows either render promptly or the selector no longer matches,
+// and the whole step timeout would be spent waiting to say so.
+const ROW_WAIT_MS = 5000;
+
 const ok = (value) => Result$Ok(value);
 
 const fail = (kind, detail) =>
@@ -95,24 +100,24 @@ export async function punchTexts(
   session,
   triggerSelector,
   modalSelector,
+  receiptSelector,
   listSelector,
 ) {
   const { page } = session;
 
-  const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
+  const blocked = await openReceipt(
+    page,
+    triggerSelector,
+    modalSelector,
+    receiptSelector,
+    listSelector,
+  );
   if (blocked) return blocked;
 
-  // Acuttis fetches the day's punches after the page loads, so reading before
-  // the network settles would report an empty day that is only empty yet.
-  // Not reaching a quiet network is not itself a failure.
-  await page.waitForLoadState("networkidle").catch(() => {});
-
   try {
-    // No matches means the day has not started yet, which is a legitimate
-    // reading rather than an error. A selector that has silently stopped
-    // matching looks the same from here, but not for long: the decision rules
-    // then see an empty day and refuse to register a punch whose window has
-    // already closed.
+    // Every row of the receipt, across all the days it lists. Which of them
+    // belong to today is decided in Gleam, where it is tested — and where an
+    // empty result can be told apart from a selector that stopped matching.
     const texts = await page.locator(listSelector).allTextContents();
     return ok(texts.map((text) => text.replace(/\s+/g, " ").trim()));
   } catch (error) {
@@ -122,21 +127,41 @@ export async function punchTexts(
   }
 }
 
+// Called straight after `punchTexts`, so the receipt is on screen and its rows
+// can be counted before anything is clicked.
 export async function registerPunch(
   session,
   triggerSelector,
   modalSelector,
+  receiptSelector,
+  backSelector,
   buttonSelector,
   listSelector,
 ) {
   const { page } = session;
 
+  // How many rows there were, so the click can be waited out by watching for
+  // one more rather than by hoping the network went quiet.
+  const before = await page.locator(listSelector).count();
+
   const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
   if (blocked) return blocked;
 
-  // How many punches there were before, so the click can be waited out by
-  // watching for one more rather than by hoping the network went quiet.
-  const before = await page.locator(listSelector).count();
+  // The punch controls and the receipt are two views of the same modal, so
+  // having just read the day leaves the wrong one showing.
+  if (backSelector) {
+    const back = page.locator(backSelector).first();
+    if (await back.isVisible().catch(() => false)) {
+      try {
+        await back.click();
+      } catch (error) {
+        return fail(
+          "interface",
+          `could not leave the receipt: ${error.message}`,
+        );
+      }
+    }
+  }
 
   const button = page.locator(buttonSelector).first();
 
@@ -160,9 +185,18 @@ export async function registerPunch(
       : fail("unavailable", error.message);
   }
 
-  // Wait for the list to actually grow. Waiting for a quiet network is not
-  // enough: the request is issued asynchronously by the click handler, so the
-  // network can still look idle at the moment it is asked.
+  // Back to the receipt to watch the list grow. Waiting for a quiet network is
+  // not enough: the request is issued asynchronously by the click handler, so
+  // the network can still look idle at the moment it is asked.
+  const reopened = await openReceipt(
+    page,
+    triggerSelector,
+    modalSelector,
+    receiptSelector,
+    listSelector,
+  );
+  if (reopened) return reopened;
+
   try {
     await page.locator(listSelector).nth(before).waitFor({ state: "attached" });
   } catch {
@@ -184,6 +218,53 @@ export async function close(session) {
     // A run has already happened or not by now; there is nothing left to save.
   }
   return undefined;
+}
+
+/// Returns a failure, or null once the punch list is on screen.
+///
+/// Acuttis keeps the punch controls and the receipt in the same modal, so the
+/// list takes two steps to reach: open the modal, then switch to the receipt.
+/// Either step can be configured away for a deployment that needs neither.
+async function openReceipt(
+  page,
+  triggerSelector,
+  modalSelector,
+  receiptSelector,
+  listSelector,
+) {
+  const blocked = await openPunchInterface(page, triggerSelector, modalSelector);
+  if (blocked) return blocked;
+
+  if (!receiptSelector) return null;
+
+  // Already showing: reading twice in one run must not toggle the view back.
+  if (await page.locator(listSelector).first().isVisible().catch(() => false)) {
+    return null;
+  }
+
+  const receipt = page.locator(receiptSelector).first();
+
+  try {
+    await receipt.waitFor({ state: "visible" });
+    await receipt.click();
+  } catch (error) {
+    if (onSignInPage(page)) return fail("expired", "");
+    return isTimeout(error)
+      ? fail("interface", `the punch receipt (${receiptSelector})`)
+      : fail("interface", error.message);
+  }
+
+  // The receipt fetches its rows, and a quiet network is not a reliable signal
+  // for that: the request is issued by the click handler, so the network can
+  // still look idle at the moment it is asked. Wait for a row instead, and let
+  // the absence of one be reported as such rather than waited on forever.
+  await page
+    .locator(listSelector)
+    .first()
+    .waitFor({ state: "attached", timeout: ROW_WAIT_MS })
+    .catch(() => {});
+
+  return null;
 }
 
 /// Returns a failure, or null once the punch interface is on screen.

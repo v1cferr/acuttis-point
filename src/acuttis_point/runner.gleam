@@ -50,7 +50,7 @@ fn visit(
   case signed_in {
     Error(error) -> promise.resolve(broke(now, report.Authenticating, error))
     Ok(Nil) -> {
-      use read <- promise.await(port.read_punches(session))
+      use read <- promise.await(port.read_punches(session, now.date))
 
       case read {
         Error(error) ->
@@ -114,7 +114,7 @@ fn confirm(
   outcome: decision.Outcome,
   target: punch.Punch,
 ) -> Promise(report.Report) {
-  use read <- promise.await(port.read_punches(session))
+  use read <- promise.await(port.read_punches(session, now.date))
 
   let result = case read {
     Error(error) -> failed(report.ConfirmingPunch, error)

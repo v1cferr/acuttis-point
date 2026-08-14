@@ -85,14 +85,6 @@ fn setup(env: Dict(String, String)) -> Result(Setup, String) {
     credentials.from_env(env)
     |> result.map_error(credentials.error_to_string),
   )
-  // Discovery is what finds the punch list selector, so it cannot be the one
-  // thing that demands it up front.
-  use page_selectors <- result.try(case settings.discover {
-    True -> Ok(selectors.for_discovery(env))
-    False ->
-      selectors.from_env(env)
-      |> result.map_error(selectors.error_to_string)
-  })
   use now <- result.try(
     system.now(settings.timezone)
     |> result.map_error(system.error_to_string),
@@ -101,7 +93,7 @@ fn setup(env: Dict(String, String)) -> Result(Setup, String) {
   Ok(Setup(
     settings: settings,
     secrets: secrets,
-    page_selectors: page_selectors,
+    page_selectors: selectors.from_env(env),
     now: now,
   ))
 }

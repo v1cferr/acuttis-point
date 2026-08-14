@@ -5,6 +5,7 @@
 //// Playwright adapter stays a leaf. The session type is a parameter because
 //// only the adapter knows what a session is.
 
+import acuttis_point/clock
 import acuttis_point/credentials
 import acuttis_point/punch
 import acuttis_point/state
@@ -38,7 +39,9 @@ pub type Port(session) {
     open: fn() -> Promise(Result(session, BrowserError)),
     sign_in: fn(session, credentials.Credentials) ->
       Promise(Result(Nil, BrowserError)),
-    read_punches: fn(session) ->
+    /// Today's date, because the receipt Acuttis shows spans several days and
+    /// only one of them is the day being decided about.
+    read_punches: fn(session, clock.Date) ->
       Promise(Result(List(state.Registered), BrowserError)),
     register: fn(session, punch.Punch) -> Promise(Result(Nil, BrowserError)),
     /// What the page looks like right now, in lines a human reads. Touches

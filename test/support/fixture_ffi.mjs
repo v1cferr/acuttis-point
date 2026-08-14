@@ -61,37 +61,68 @@ const PAGE = String.raw`<!doctype html>
     });
   }
 
+  // The observed shape: the punch controls and the receipt are two views of the
+  // same modal, and an anchor rather than a button opens it.
   async function renderDashboard() {
     history.replaceState({}, "", "/dashboard");
     root.innerHTML = ${"`"}
       <h1>Dashboard</h1>
-      <ul id="punch_history"></ul>
-      <button class="modal-trigger btn">Registrar</button>
+      <a class="waves-effect tooltipped size-item-navbar"><i>touch_app</i></a>
       <div id="mark_modal" class="modal" hidden>
-        <p>CPF:</p>
-        <button class="punch-button btn">Ponto</button>
-        <button class="rest-button btn">Pausa</button>
+        <div id="punch_view">
+          <span class="styles_clock__nR8e0">00:00:00</span>
+          <p>CPF: 000.000.000-00</p>
+          <button class="btn">Ponto</button>
+          <button class="btn">Pausa</button>
+          <button class="button-link">Comprovante de ponto</button>
+        </div>
+        <div id="receipt_view" hidden>
+          <div id="punch_history"></div>
+          <button class="button-link">Voltar</button>
+        </div>
       </div>
     ${"`"};
 
-    root.querySelector(".modal-trigger").addEventListener("click", () => {
-      root.querySelector("#mark_modal").hidden = false;
+    const modal = root.querySelector("#mark_modal");
+    const punchView = root.querySelector("#punch_view");
+    const receiptView = root.querySelector("#receipt_view");
+    const button = (label) =>
+      Array.from(root.querySelectorAll("button")).find(
+        (b) => b.textContent.trim() === label,
+      );
+
+    root.querySelector("a.size-item-navbar").addEventListener("click", () => {
+      modal.hidden = false;
     });
 
-    root.querySelector(".punch-button").addEventListener("click", async () => {
-      await fetch("/api/punch", { method: "POST" });
+    button("Comprovante de ponto").addEventListener("click", async () => {
+      punchView.hidden = true;
+      receiptView.hidden = false;
       await paintHistory();
     });
 
-    await paintHistory();
+    button("Voltar").addEventListener("click", () => {
+      receiptView.hidden = true;
+      punchView.hidden = false;
+    });
+
+    button("Ponto").addEventListener("click", async () => {
+      await fetch("/api/punch", { method: "POST" });
+    });
   }
 
+  // Newest first, and spanning several days, the way the real receipt does.
   async function paintHistory() {
     const registered = await punches();
     const history = root.querySelector("#punch_history");
     if (!history) return;
     history.innerHTML = registered
-      .map((time) => ${"`"}<li class="punch-row"><span class="time">${"$"}{time}</span></li>${"`"})
+      .slice()
+      .reverse()
+      .map(
+        (row) =>
+          ${"`"}<div class="styles_containerMarkingAddress__lLpPc">${"$"}{row}</div>${"`"},
+      )
       .join("");
   }
 

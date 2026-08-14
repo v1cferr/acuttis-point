@@ -49,18 +49,25 @@ pub fn port(
       )
       |> promise.map(translate)
     },
-    read_punches: fn(session) {
+    read_punches: fn(session, today) {
       ffi_punch_texts(
         session,
         page_selectors.punch_trigger,
         page_selectors.punch_modal,
+        page_selectors.punch_receipt,
         page_selectors.punch_list,
       )
       |> promise.map(fn(outcome) {
         use texts <- result.try(translate(outcome))
-        acuttis.read_punches(array.to_list(texts))
+        acuttis.read_punches(rows: array.to_list(texts), today: today)
         |> result.map_error(fn(error) {
-          browser.UnexpectedResponse(acuttis.error_to_string(error))
+          case error {
+            // Not a strange answer but a missing one, and the likeliest reading
+            // is that the generated class name changed under us.
+            acuttis.PunchListNotFound ->
+              browser.InterfaceChanged("any row on the punch receipt")
+            _ -> browser.UnexpectedResponse(acuttis.error_to_string(error))
+          }
         })
       })
     },
@@ -69,6 +76,8 @@ pub fn port(
         session,
         page_selectors.punch_trigger,
         page_selectors.punch_modal,
+        page_selectors.punch_receipt,
+        page_selectors.punch_back,
         page_selectors.punch_button,
         page_selectors.punch_list,
       )
@@ -135,16 +144,19 @@ fn ffi_punch_texts(
   session: Session,
   trigger_selector: String,
   modal_selector: String,
+  receipt_selector: String,
   list_selector: String,
 ) -> Promise(Result(Array(String), Failure))
 
-/// The list selector is needed to register, not only to read: the click is
-/// waited out by watching the list grow by one.
+/// Takes the whole set: registering means leaving the receipt, clicking the
+/// punch, and coming back to watch the list grow by one.
 @external(javascript, "./playwright_ffi.mjs", "registerPunch")
 fn ffi_register(
   session: Session,
   trigger_selector: String,
   modal_selector: String,
+  receipt_selector: String,
+  back_selector: String,
   button_selector: String,
   list_selector: String,
 ) -> Promise(Result(Nil, Failure))

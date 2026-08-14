@@ -105,7 +105,7 @@ fn fake(
         record("sign_in")
         promise.resolve(behaviour.sign_in)
       },
-      read_punches: fn(_session) {
+      read_punches: fn(_session, _today) {
         record("read_punches")
         let journal = spy.get(cell)
         let reads =

@@ -158,6 +158,12 @@ pub fn date_to_string(date: Date) -> String {
   int.to_string(date.year) <> "-" <> pad(date.month) <> "-" <> pad(date.day)
 }
 
+/// `DD/MM/YYYY`, the form Acuttis prints on each row of the punch receipt. Used
+/// to tell today's rows apart from the other days it lists.
+pub fn date_to_dmy(date: Date) -> String {
+  pad(date.day) <> "/" <> pad(date.month) <> "/" <> int.to_string(date.year)
+}
+
 /// Sakamoto's algorithm. Deriving the weekday here keeps it pure and testable
 /// instead of trusting the JavaScript side for one more thing.
 pub fn weekday(date: Date) -> Weekday {
