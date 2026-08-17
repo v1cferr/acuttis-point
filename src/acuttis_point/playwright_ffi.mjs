@@ -30,9 +30,16 @@ const isTimeout = (error) =>
 const onSignInPage = (page) => new URL(page.url()).pathname.startsWith("/signin");
 
 // `sessionPath` empty means do not persist anything: every run signs in.
-export async function open(headless, timeoutMs, sessionPath) {
+// `proxyServer` empty means go out from this machine.
+export async function open(headless, timeoutMs, sessionPath, proxyServer) {
   try {
-    const browser = await chromium.launch({ headless });
+    // The proxy goes on the browser rather than the context, because Chromium
+    // resolves DNS through a SOCKS proxy only when it is launched with one:
+    // set per context, the hostname would still be looked up from here, which
+    // says where the run is happening to anyone watching the queries.
+    const browser = await chromium.launch(
+      proxyServer ? { headless, proxy: { server: proxyServer } } : { headless },
+    );
 
     const options = { locale: "pt-BR", timezoneId: "America/Sao_Paulo" };
 

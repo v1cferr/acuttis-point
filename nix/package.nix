@@ -6,6 +6,12 @@
   playwright-driver,
   cacert,
   makeWrapper,
+  bash,
+  coreutils,
+  curl,
+  iproute2,
+  openssh,
+  systemd,
 }:
 let
   version = "0.1.0";
@@ -58,6 +64,7 @@ stdenvNoCC.mkDerivation {
       ../gleam.toml
       ../manifest.toml
       ../src
+      ../scripts/with-fai-proxy.sh
     ];
   };
 
@@ -101,6 +108,23 @@ stdenvNoCC.mkDerivation {
       --set PLAYWRIGHT_BROWSERS_PATH "${playwright-driver.browsers}" \
       --set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD 1 \
       --set PLAYWRIGHT_HOST_PLATFORM_OVERRIDE nixos
+
+    # The proxy wrapper ships with the program rather than being reimplemented in
+    # Nix, so the declarative deployment and the local scripts/ path run the same
+    # code. It runs $out/bin/acuttis-point unless told otherwise.
+    install -Dm755 ${../scripts/with-fai-proxy.sh} $out/bin/acuttis-point-proxied
+    wrapProgram $out/bin/acuttis-point-proxied \
+      --set-default ACUTTIS_BINARY $out/bin/acuttis-point \
+      --prefix PATH : ${
+        lib.makeBinPath [
+          bash
+          coreutils
+          curl
+          iproute2
+          openssh
+          systemd
+        ]
+      }
 
     runHook postInstall
   '';

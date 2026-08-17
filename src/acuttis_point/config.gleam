@@ -57,6 +57,13 @@ pub type Config {
     /// Where to drop a screenshot when a run fails. The page at that moment is
     /// the only witness to an interface that changed.
     screenshot_dir: Result(String, Nil),
+    /// Send the browser's traffic through this proxy, so the punch reaches
+    /// Acuttis from somewhere other than this machine's address. What it is for
+    /// here is arriving from inside the university network: the punch is a
+    /// record of being at work, and the address it comes from is part of that
+    /// record. `scripts/with-fai-proxy.sh` opens one over ssh for the length of
+    /// a single run.
+    proxy_server: Result(String, Nil),
   )
 }
 
@@ -68,6 +75,10 @@ pub type ConfigError {
   NotABoolean(key: String, value: String)
   EmptyValue(key: String)
   InsecureUrl(key: String, value: String)
+  /// A proxy address the browser would not understand. Refused rather than
+  /// ignored: a proxy silently dropped means the run goes out from here, which
+  /// is the one thing configuring it was meant to prevent.
+  UnsupportedProxy(key: String, value: String)
   /// The configured times do not run forward through the day.
   ScheduleOutOfOrder(earlier: punch.Punch, later: punch.Punch)
   /// The schedule could produce a lunch break shorter than allowed.
@@ -125,6 +136,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use headless <- result.try(boolean(env, "HEADLESS", True))
   use discover <- result.try(boolean(env, "DISCOVER", False))
   use preflight <- result.try(boolean(env, "PREFLIGHT", False))
+  use proxy_server <- result.try(proxy(env, "PROXY_SERVER"))
   let session_file = optional(env, "SESSION_FILE")
   let screenshot_dir = optional(env, "SCREENSHOT_DIR")
 
@@ -153,6 +165,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     preflight:,
     session_file:,
     screenshot_dir:,
+    proxy_server:,
   ))
 }
 
@@ -231,6 +244,10 @@ pub fn describe(config: Config) -> String {
   <> int.to_string(list.length(config.skip_dates))
   <> " dry_run="
   <> bool_to_string(config.dry_run)
+  <> case config.proxy_server {
+    Error(Nil) -> ""
+    Ok(server) -> " proxy=" <> server
+  }
 }
 
 pub fn error_to_string(error: ConfigError) -> String {
@@ -252,6 +269,12 @@ pub fn error_to_string(error: ConfigError) -> String {
     EmptyValue(key:) -> key <> " is empty"
     InsecureUrl(key:, value:) ->
       key <> "=" <> value <> " must be an https:// url"
+    UnsupportedProxy(key:, value:) ->
+      key
+      <> "="
+      <> value
+      <> " needs a scheme the browser understands: socks5://, socks4://,"
+      <> " http:// or https://"
     ScheduleOutOfOrder(earlier:, later:) ->
       punch.to_string(later)
       <> " is scheduled before "
@@ -439,6 +462,31 @@ fn boolean(
         _ -> Error(NotABoolean(key: key, value: raw))
       }
   }
+}
+
+/// A proxy the browser can actually be pointed at. Chromium takes the scheme as
+/// part of the address, and a hostname with no scheme is read as http, which
+/// would quietly turn a SOCKS tunnel into a failed connection.
+fn proxy(
+  env: Dict(String, String),
+  key: String,
+) -> Result(Result(String, Nil), ConfigError) {
+  case optional(env, key) {
+    Error(Nil) -> Ok(Error(Nil))
+    Ok(raw) ->
+      case supported_proxy(raw) {
+        True -> Ok(Ok(raw))
+        False -> Error(UnsupportedProxy(key: key, value: raw))
+      }
+  }
+}
+
+fn supported_proxy(raw: String) -> Bool {
+  let schemes = ["socks5://", "socks4://", "http://", "https://"]
+  list.any(schemes, fn(scheme) {
+    string.starts_with(raw, scheme)
+    && string.length(raw) > string.length(scheme)
+  })
 }
 
 /// Https, or plain http on the loopback interface. The reason to demand https

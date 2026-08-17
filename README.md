@@ -172,6 +172,45 @@ rehearsal is only worth anything before its punch, so running one on resume,
 after the window it warned about had already closed, would be reporting
 yesterday's weather. `preflightLeadMinutes = 0` installs none of it.
 
+### Punching from the right place
+
+A punch is a record of having been at work, and the address it arrives from is
+part of that record. Left alone, these runs reach Acuttis from a home
+connection.
+
+The university VPN does not fix that, which is worth stating because it is the
+obvious thing to try. It is a split tunnel: it carries FAI's own subnets and
+nothing else, so traffic to Acuttis leaves by the ordinary route whether the
+tunnel is up or down. Forcing a default route into it does not help either —
+the gateway does not forward arbitrary destinations, and a ping out of `ppp0` to
+`1.1.1.1` gets no answer at all.
+
+So the traffic is not routed there, it originates there. `PROXY_SSH_HOST` names a
+machine inside the university network; `scripts/with-fai-proxy.sh` opens a SOCKS
+tunnel to it over ssh, hands it to Chromium as a proxy, and closes it when the
+run ends. No route changes, no system-wide VPN left on, nothing else on the
+machine pointed at it.
+
+```sh
+./scripts/with-fai-proxy.sh --check     # prove the path, run nothing
+```
+
+What makes the address right is where the connection is made from, not a setting
+in a file — ssh reaching that host is itself the proof, so a run never has to ask
+an outside service what its address looks like. Chromium gets the proxy at launch
+rather than per context, so hostnames are resolved at the far end too; set on the
+context, the DNS queries would still say where the run is happening.
+
+It fails closed. No tunnel means no punch, rather than a punch quietly sent from
+the wrong place — and that is only tolerable because the rehearsal fifteen
+minutes earlier goes through the same tunnel, so a broken path is something you
+hear about with time to act rather than at the moment it costs a punch.
+
+The host has to be reachable and accept a passphrase-less key, since a systemd
+unit has no agent and nobody to type at it. If the host only has a route through
+the VPN, the wrapper brings that unit up, waits for the interface, and stops it
+again afterwards when it was the one that started it.
+
 ### Scheduling without NixOS
 
 `scripts/schedule.sh` installs a user systemd timer from the current `.env`,

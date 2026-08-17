@@ -188,6 +188,47 @@ in
       '';
     };
 
+    proxySshHost = lib.mkOption {
+      type = lib.types.nullOr lib.types.nonEmptyStr;
+      default = null;
+      example = "workstation";
+      description = ''
+        Send the browser out through this ssh host, so a punch reaches Acuttis
+        from that machine's address rather than this one's. A punch is a record of
+        having been at work, and the address it arrives from is part of that
+        record.
+
+        A SOCKS tunnel over ssh, opened for the length of one run and closed
+        after: no route changes and no system-wide VPN left on. What makes the
+        address right is where the connection is made from, not a setting — so
+        there is nothing to verify against an outside service.
+
+        The university VPN alone does not do this. It is a split tunnel carrying
+        only its own subnets, so traffic to Acuttis leaves by the ordinary route
+        whether or not the tunnel is up, and its gateway does not forward
+        arbitrary destinations.
+
+        It fails closed: no tunnel means no punch, rather than a punch quietly
+        sent from the wrong place. Tolerable only because the rehearsal
+        (`preflightLeadMinutes`) uses the same tunnel and so reports a broken path
+        while there is still time to act.
+
+        The user the service runs as needs a passphrase-less key authorised on
+        that host, and read access to it — which the default system user does not
+        have. Set `user` to an account that does.
+      '';
+    };
+
+    proxyServer = lib.mkOption {
+      type = lib.types.nullOr lib.types.nonEmptyStr;
+      default = null;
+      example = "socks5://127.0.0.1:11080";
+      description = ''
+        Point the browser at a proxy this module does not manage. Mutually
+        exclusive with `proxySshHost`, which sets it itself.
+      '';
+    };
+
     punchListSelector = lib.mkOption {
       type = lib.types.nullOr lib.types.nonEmptyStr;
       default = null;
@@ -334,6 +375,14 @@ in
           fall on the day before the punch it is rehearsing. Shorten the lead.
         '';
       }
+      {
+        assertion = cfg.proxySshHost == null || cfg.proxyServer == null;
+        message = ''
+          services.acuttis-point: set proxySshHost or proxyServer, not both.
+          proxySshHost opens a tunnel and points the browser at it, so a
+          proxyServer alongside it would be the one silently ignored.
+        '';
+      }
     ];
 
     users.users = lib.mkIf (cfg.user == "acuttis-point") {
@@ -379,6 +428,10 @@ in
         PUNCH_LIST_SELECTOR = cfg.punchListSelector;
       }
       // lib.optionalAttrs (cfg.notifyUrl != null) { NOTIFY_URL = cfg.notifyUrl; }
+      // lib.optionalAttrs (cfg.proxySshHost != null) {
+        PROXY_SSH_HOST = cfg.proxySshHost;
+      }
+      // lib.optionalAttrs (cfg.proxyServer != null) { PROXY_SERVER = cfg.proxyServer; }
       // lib.optionalAttrs cfg.screenshots {
         SCREENSHOT_DIR = "/var/lib/acuttis-point/screenshots";
       }
@@ -387,7 +440,13 @@ in
 
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = lib.getExe cfg.package;
+        # The wrapper runs the program; without a tunnel to open there is no
+        # reason for the extra process.
+        ExecStart =
+          if cfg.proxySshHost == null then
+            lib.getExe cfg.package
+          else
+            "${cfg.package}/bin/acuttis-point-proxied";
         EnvironmentFile = cfg.environmentFile;
         User = cfg.user;
         Group = cfg.group;

@@ -39,6 +39,8 @@ pub fn port(
         settings.timeout_seconds * 1000,
         // Empty means do not persist: every run signs in from scratch.
         result.unwrap(settings.session_file, ""),
+        // Empty means go out from this machine's own address.
+        result.unwrap(settings.proxy_server, ""),
       )
       |> promise.map(translate)
     },
@@ -153,6 +155,7 @@ fn ffi_open(
   headless: Bool,
   timeout_ms: Int,
   session_path: String,
+  proxy_server: String,
 ) -> Promise(Result(Session, Failure))
 
 /// Empty string on success, the failure detail otherwise.

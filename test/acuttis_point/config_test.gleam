@@ -237,12 +237,51 @@ pub fn base_url_must_be_https_and_loses_trailing_slashes_test() {
     ))
 }
 
+// A proxy is not decoration: it decides where the punch appears to come from.
+// Anything the browser would not understand has to be refused, because the
+// alternative is a run that goes out from here believing it did not.
+pub fn a_proxy_the_browser_would_not_understand_is_refused_test() {
+  let assert Ok(none) = config.from_env(env([]))
+  assert none.proxy_server == Error(Nil)
+
+  let assert Ok(socks) =
+    config.from_env(env([#("PROXY_SERVER", "socks5://127.0.0.1:11080")]))
+  assert socks.proxy_server == Ok("socks5://127.0.0.1:11080")
+
+  // A bare host:port is the tempting way to write it, and Chromium reads it as
+  // http, which is not what a SOCKS tunnel speaks.
+  assert config.from_env(env([#("PROXY_SERVER", "127.0.0.1:11080")]))
+    == Error(config.UnsupportedProxy(
+      key: "PROXY_SERVER",
+      value: "127.0.0.1:11080",
+    ))
+
+  // A scheme with nothing after it is not an address either.
+  assert config.from_env(env([#("PROXY_SERVER", "socks5://")]))
+    == Error(config.UnsupportedProxy(key: "PROXY_SERVER", value: "socks5://"))
+
+  // Blank reads as absent, like every other optional setting.
+  let assert Ok(blank) = config.from_env(env([#("PROXY_SERVER", "   ")]))
+  assert blank.proxy_server == Error(Nil)
+}
+
 pub fn describe_lists_the_effective_settings_test() {
   let assert Ok(loaded) = config.from_env(env([#("WORK_DAYS", "MON")]))
   assert config.describe(loaded)
     == "url=https://app.acuttis.com.br days=MON ENTRY=08:00 LUNCH_START=12:00 "
     <> "LUNCH_END=14:00 EXIT=17:30 tolerance=10m tz=America/Sao_Paulo "
     <> "lunch>=110m skipped=0 dry_run=false"
+
+  // Where a run goes out from belongs in the header: it is the difference
+  // between two runs that otherwise log identically.
+  let assert Ok(proxied) =
+    config.from_env(
+      env([#("WORK_DAYS", "MON"), #("PROXY_SERVER", "socks5://127.0.0.1:11080")]),
+    )
+  assert config.describe(proxied)
+    == "url=https://app.acuttis.com.br days=MON ENTRY=08:00 LUNCH_START=12:00 "
+    <> "LUNCH_END=14:00 EXIT=17:30 tolerance=10m tz=America/Sao_Paulo "
+    <> "lunch>=110m skipped=0 dry_run=false proxy=socks5://127.0.0.1:11080"
 }
 
 pub fn error_to_string_is_actionable_test() {

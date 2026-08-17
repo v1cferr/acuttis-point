@@ -185,6 +185,22 @@ nix build "$REPO#default" --out-link "$REPO/state/current" >/dev/null
 binary="$REPO/state/current/bin/acuttis-point"
 [[ -x "$binary" ]] || die "the build produced no runnable binary"
 
+# PROXY_SSH_HOST in .env sends the browser out through a machine inside the
+# university network, so the punch arrives from a university address. The unit
+# then runs the wrapper instead of the binary; the wrapper runs the binary.
+#
+# It fails closed: no tunnel means no punch, rather than a punch quietly sent
+# from this house. That is the safer default only because the rehearsal fifteen
+# minutes earlier exercises the same tunnel — so a broken path is something you
+# hear about with time to act, not at the moment it costs you a punch.
+proxy_host="$(env_value PROXY_SSH_HOST)"
+if [[ -n "$proxy_host" ]]; then
+  runner="$REPO/scripts/with-fai-proxy.sh"
+  [[ -x "$runner" ]] || die "PROXY_SSH_HOST is set but $runner is not executable"
+else
+  runner="$binary"
+fi
+
 mkdir -p "$UNIT_DIR"
 
 # A failure notifier at the systemd layer, because the program cannot report a
@@ -218,8 +234,9 @@ OnFailure=$UNIT_NAME-failed.service
 Type=oneshot
 Environment=ENV_FILE=$ENV_FILE
 Environment=LOG_FILE=$REPO/logs/runs.log
+Environment=ACUTTIS_BINARY=$binary
 WorkingDirectory=$REPO
-ExecStart=$binary
+ExecStart=$runner
 UNIT
 
 {
@@ -263,8 +280,9 @@ OnFailure=$UNIT_NAME-failed.service
 Type=oneshot
 Environment=ENV_FILE=$ENV_FILE
 Environment=PREFLIGHT=true
+Environment=ACUTTIS_BINARY=$binary
 WorkingDirectory=$REPO
-ExecStart=$binary
+ExecStart=$runner
 UNIT
 
   {
@@ -288,6 +306,9 @@ UNIT
 fi
 
 echo "schedule: installed"
+if [[ -n "$proxy_host" ]]; then
+  echo "  going out through $proxy_host, so a punch arrives from there"
+fi
 printf '  %s\n' "${calendar_lines[@]}"
 echo "  each fires between its time and +9 minutes"
 if ((${#preflight_lines[@]} > 0)); then
