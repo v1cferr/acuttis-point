@@ -47,6 +47,9 @@ pub type Config {
     /// which is the only way to look at the real interface with no chance of
     /// registering a punch.
     discover: Bool,
+    /// Rehearse the punch shortly before it is due: sign in, read the day, and
+    /// check the punch button would take a click. Registers nothing.
+    preflight: Bool,
     /// Where to keep the browser's cookies between runs, so four runs a day do
     /// not mean four sign-ins. The file is a credential: it stands in for the
     /// password until it expires.
@@ -121,6 +124,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   ))
   use headless <- result.try(boolean(env, "HEADLESS", True))
   use discover <- result.try(boolean(env, "DISCOVER", False))
+  use preflight <- result.try(boolean(env, "PREFLIGHT", False))
   let session_file = optional(env, "SESSION_FILE")
   let screenshot_dir = optional(env, "SCREENSHOT_DIR")
 
@@ -146,6 +150,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     timeout_seconds:,
     headless:,
     discover:,
+    preflight:,
     session_file:,
     screenshot_dir:,
   ))

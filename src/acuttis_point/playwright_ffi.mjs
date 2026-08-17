@@ -322,6 +322,78 @@ export async function registerPunch(
   return ok(undefined);
 }
 
+// Everything a punch does except the click itself. Playwright's trial mode
+// performs every check a real click performs — visible, enabled, stable, not
+// obscured — and then does not dispatch the event. That is what makes this a
+// rehearsal rather than a guess: the two failures this project has had in
+// production were both in the click, and neither would have been caught by
+// reading the page.
+export async function verifyPunchable(
+  session,
+  triggerSelector,
+  modalSelector,
+  receiptSelector,
+  backSelector,
+  buttonSelector,
+  listSelector,
+) {
+  const { page } = session;
+
+  const blocked = await openReceipt(
+    page,
+    triggerSelector,
+    modalSelector,
+    receiptSelector,
+    listSelector,
+  );
+  if (blocked) return blocked;
+
+  // Same order as registering: Voltar closes the modal, so it has to be gone
+  // before the trigger reopens it on the punch view.
+  if (backSelector) {
+    const back = page.locator(backSelector).first();
+    if (await back.isVisible().catch(() => false)) {
+      try {
+        await back.click();
+        if (modalSelector) {
+          await page
+            .locator(modalSelector)
+            .first()
+            .waitFor({ state: "hidden", timeout: ROW_WAIT_MS });
+        }
+      } catch (error) {
+        return fail("interface", `could not leave the receipt: ${error.message}`);
+      }
+    }
+  }
+
+  const reopened = await openPunchInterface(page, triggerSelector, modalSelector);
+  if (reopened) return reopened;
+
+  const button = page.locator(buttonSelector).first();
+
+  try {
+    await button.waitFor({ state: "visible" });
+  } catch (error) {
+    return fail(
+      "interface",
+      `the punch button (${buttonSelector}): ${error.message}`,
+    );
+  }
+
+  if (await button.isDisabled()) {
+    return fail("unavailable", "the punch button is disabled");
+  }
+
+  try {
+    await button.click({ trial: true });
+  } catch (error) {
+    return fail("unavailable", error.message);
+  }
+
+  return ok(undefined);
+}
+
 export async function close(session) {
   try {
     await session.browser.close();

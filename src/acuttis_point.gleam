@@ -11,6 +11,7 @@ import acuttis_point/credentials
 import acuttis_point/discovery
 import acuttis_point/notification
 import acuttis_point/playwright
+import acuttis_point/preflight
 import acuttis_point/report
 import acuttis_point/runner
 import acuttis_point/selectors
@@ -63,11 +64,18 @@ pub fn main() -> Nil {
 
       let port = playwright.port(setup.settings, setup.page_selectors)
 
-      let _ = case setup.settings.discover {
-        True ->
+      let _ = case setup.settings.discover, setup.settings.preflight {
+        True, _ ->
           discovery.discover(secrets: setup.secrets, now: setup.now, port: port)
           |> promise.map(announce)
-        False ->
+        _, True ->
+          preflight.check(secrets: setup.secrets, now: setup.now, port: port)
+          |> promise.await(fn(checked) {
+            io.println(preflight.to_line(checked))
+            system.set_exit_status(preflight.exit_code(checked))
+            rehearsal(out, checked)
+          })
+        _, _ ->
           runner.run(
             settings: setup.settings,
             secrets: setup.secrets,
@@ -167,6 +175,34 @@ fn send(
           promise.resolve(Nil)
         }
       }
+  }
+}
+
+/// A rehearsal is worth hearing about either way, so it ignores NOTIFY_ON: the
+/// whole request was to be told, ahead of time, that the punch will work.
+fn rehearsal(
+  out: Outputs,
+  checked: preflight.Preflight,
+) -> promise.Promise(Nil) {
+  case out.notify_url {
+    Error(Nil) -> promise.resolve(Nil)
+    Ok(url) -> {
+      let message = notification.from_preflight(checked)
+      use sent <- promise.await(system.notify(
+        url: url,
+        title: message.title,
+        body: message.body,
+        priority: message.priority,
+        tags: message.tags,
+        attachment: Error(Nil),
+      ))
+      case sent {
+        Ok(Nil) -> Nil
+        Error(error) ->
+          io.println("acuttis-point: " <> system.error_to_string(error))
+      }
+      promise.resolve(Nil)
+    }
   }
 }
 

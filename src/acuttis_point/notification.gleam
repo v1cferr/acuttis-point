@@ -9,7 +9,9 @@
 
 import acuttis_point/clock
 import acuttis_point/decision
+import acuttis_point/preflight
 import acuttis_point/report
+import acuttis_point/state
 
 pub type Notification {
   Notification(title: String, body: String, priority: String, tags: String)
@@ -78,6 +80,26 @@ pub fn from_report(record: report.Report) -> Notification {
             report.stage_to_string(stage) <> " failed: " <> detail,
           )
       }
+  }
+}
+
+/// A rehearsal is worth hearing about either way: "ready" is the reassurance
+/// that was asked for, and "not ready" arrives while there is still time to act.
+pub fn from_preflight(checked: preflight.Preflight) -> Notification {
+  case checked {
+    preflight.Ready(day: state.Completed, ..) ->
+      quiet("Day already complete", "nothing left to punch today")
+    preflight.Ready(day:, registered:, ..) ->
+      good(
+        "Ready to punch " <> preflight.next_punch(day),
+        "signed in, day read, punch button reachable. So far: "
+          <> state.registered_to_string(registered),
+      )
+    preflight.NotReady(stage:, detail:, ..) ->
+      problem(
+        "Not ready to punch",
+        report.stage_to_string(stage) <> " failed: " <> detail,
+      )
   }
 }
 

@@ -99,6 +99,18 @@ pub fn port(
         |> result.map(array.to_list)
       })
     },
+    verify: fn(session) {
+      ffi_verify(
+        session,
+        page_selectors.punch_trigger,
+        page_selectors.punch_modal,
+        page_selectors.punch_receipt,
+        page_selectors.punch_back,
+        page_selectors.punch_button,
+        page_selectors.punch_list,
+      )
+      |> promise.map(translate)
+    },
     capture: fn(session, path) {
       ffi_screenshot(session, path)
       |> promise.map(fn(detail) {
@@ -186,6 +198,17 @@ fn ffi_describe(
   trigger_selector: String,
   modal_selector: String,
 ) -> Promise(Result(Array(String), Failure))
+
+@external(javascript, "./playwright_ffi.mjs", "verifyPunchable")
+fn ffi_verify(
+  session: Session,
+  trigger_selector: String,
+  modal_selector: String,
+  receipt_selector: String,
+  back_selector: String,
+  button_selector: String,
+  list_selector: String,
+) -> Promise(Result(Nil, Failure))
 
 @external(javascript, "./playwright_ffi.mjs", "close")
 fn ffi_close(session: Session) -> Promise(Nil)

@@ -27,6 +27,9 @@
 set -euo pipefail
 
 readonly JITTER_SECONDS=540 # 9 minutes
+# How far ahead of a punch the rehearsal runs. Enough to act on bad news — the
+# punch itself can still be made by hand inside its window.
+readonly PREFLIGHT_LEAD_MINUTES=15
 readonly UNIT_NAME=acuttis-point
 readonly REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
@@ -49,14 +52,21 @@ env_value() {
 }
 
 show_status() {
-  systemctl --user list-timers "$UNIT_NAME.timer" --all --no-pager || true
+  systemctl --user list-timers "$UNIT_NAME*" --all --no-pager || true
   echo
+  echo "punches:"
   systemctl --user cat "$UNIT_NAME.timer" --no-pager 2>/dev/null |
-    grep -E "OnCalendar|RandomizedDelaySec|Persistent" || echo "not installed"
+    grep -E "OnCalendar|RandomizedDelaySec|Persistent" || echo "  not installed"
+  echo "rehearsals:"
+  systemctl --user cat "$UNIT_NAME-preflight.timer" --no-pager 2>/dev/null |
+    grep -E "OnCalendar|RandomizedDelaySec|Persistent" || echo "  not installed"
 }
 
 remove() {
   systemctl --user disable --now "$UNIT_NAME.timer" 2>/dev/null || true
+  systemctl --user disable --now "$UNIT_NAME-preflight.timer" 2>/dev/null || true
+  rm -f "$UNIT_DIR/$UNIT_NAME-preflight.timer" \
+    "$UNIT_DIR/$UNIT_NAME-preflight.service"
   rm -f "$UNIT_DIR/$UNIT_NAME.timer" "$UNIT_DIR/$UNIT_NAME.service" \
     "$UNIT_DIR/$UNIT_NAME-failed.service"
   systemctl --user daemon-reload
@@ -111,6 +121,15 @@ if [[ "$punches" == "all" ]]; then
 fi
 
 calendar_lines=()
+preflight_lines=()
+
+minus_lead() {
+  local total=$((10#${1%%:*} * 60 + 10#${1##*:} - PREFLIGHT_LEAD_MINUTES))
+  # A rehearsal that would fall on the previous day is simply not scheduled.
+  ((total < 0)) && return 1
+  printf '%02d:%02d' $((total / 60)) $((total % 60))
+}
+
 for punch in ${punches//,/ }; do
   key="${TIME_KEY[$punch]:-}"
   [[ -n "$key" ]] || die "unknown punch: $punch"
@@ -129,6 +148,15 @@ for punch in ${punches//,/ }; do
     days="$(echo "$work_days" | tr 'A-Z' 'a-z' |
       sed -E 's/mon/Mon/g; s/tue/Tue/g; s/wed/Wed/g; s/thu/Thu/g; s/fri/Fri/g; s/sat/Sat/g; s/sun/Sun/g')"
     calendar_lines+=("OnCalendar=$days *-*-* $time:00")
+  fi
+
+  # The sweep only reports, so rehearsing it would be a rehearsal of a report.
+  if [[ "$punch" != "sweep" ]] && lead="$(minus_lead "$time")"; then
+    if [[ -n "$on_date" ]]; then
+      preflight_lines+=("OnCalendar=$on_date $lead:00")
+    else
+      preflight_lines+=("OnCalendar=$days *-*-* $lead:00")
+    fi
   fi
 done
 
@@ -220,8 +248,51 @@ systemctl --user enable "$UNIT_NAME.timer" >/dev/null
 # would silently keep the old schedule and never fire again.
 systemctl --user restart "$UNIT_NAME.timer"
 
+# The rehearsals: same program, PREFLIGHT=true, on their own timer. Separate
+# because they must not be jittered — a rehearsal drifting nine minutes later
+# would land inside the window it is supposed to run ahead of.
+if ((${#preflight_lines[@]} > 0)); then
+  cat >"$UNIT_DIR/$UNIT_NAME-preflight.service" <<UNIT
+[Unit]
+Description=Rehearse the next Acuttis punch without registering it
+After=network-online.target
+Wants=network-online.target
+OnFailure=$UNIT_NAME-failed.service
+
+[Service]
+Type=oneshot
+Environment=ENV_FILE=$ENV_FILE
+Environment=PREFLIGHT=true
+WorkingDirectory=$REPO
+ExecStart=$binary
+UNIT
+
+  {
+    echo "[Unit]"
+    echo "Description=Rehearsals ahead of today's Acuttis punches"
+    echo
+    echo "[Timer]"
+    printf '%s\n' "${preflight_lines[@]}"
+    echo "Unit=$UNIT_NAME-preflight.service"
+    echo "AccuracySec=1s"
+    # No RandomizedDelaySec on purpose: see above.
+    echo "Persistent=false"
+    echo
+    echo "[Install]"
+    echo "WantedBy=timers.target"
+  } >"$UNIT_DIR/$UNIT_NAME-preflight.timer"
+
+  systemctl --user daemon-reload
+  systemctl --user enable "$UNIT_NAME-preflight.timer" >/dev/null
+  systemctl --user restart "$UNIT_NAME-preflight.timer"
+fi
+
 echo "schedule: installed"
 printf '  %s\n' "${calendar_lines[@]}"
 echo "  each fires between its time and +9 minutes"
+if ((${#preflight_lines[@]} > 0)); then
+  echo "  rehearsals ${PREFLIGHT_LEAD_MINUTES} minutes ahead, exact:"
+  printf '    %s\n' "${preflight_lines[@]}"
+fi
 echo
 systemctl --user list-timers "$UNIT_NAME.timer" --all --no-pager
