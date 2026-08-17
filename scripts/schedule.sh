@@ -57,7 +57,8 @@ show_status() {
 
 remove() {
   systemctl --user disable --now "$UNIT_NAME.timer" 2>/dev/null || true
-  rm -f "$UNIT_DIR/$UNIT_NAME.timer" "$UNIT_DIR/$UNIT_NAME.service"
+  rm -f "$UNIT_DIR/$UNIT_NAME.timer" "$UNIT_DIR/$UNIT_NAME.service" \
+    "$UNIT_DIR/$UNIT_NAME-failed.service"
   systemctl --user daemon-reload
   echo "schedule: removed"
 }
@@ -144,17 +145,46 @@ if [[ ",$punches," == *",sweep,"* ]]; then
     die "SWEEP_TIME is not past the last window (exit + tolerance + jitter); it could register the punch it is meant to report as missing"
 fi
 
+# --out-link, never --no-link: the symlink is a GC root, and without one the
+# store path is garbage and gets collected. That happened on 2026-08-17 — the
+# unit was left pointing at a path that no longer existed, systemd failed with
+# 203/EXEC, and nothing notified, because the notification comes from inside the
+# program that could not start. The unit points at the symlink rather than the
+# store path, so a later rebuild does not leave the unit stale either.
 echo "schedule: building the package"
-binary="$(nix build "$REPO#default" --no-link --print-out-paths)/bin/acuttis-point"
+mkdir -p "$REPO/state"
+nix build "$REPO#default" --out-link "$REPO/state/current" >/dev/null
+binary="$REPO/state/current/bin/acuttis-point"
 [[ -x "$binary" ]] || die "the build produced no runnable binary"
 
 mkdir -p "$UNIT_DIR"
+
+# A failure notifier at the systemd layer, because the program cannot report a
+# failure to start. Everything else notifies from inside the run; this covers the
+# case where there is no run.
+cat >"$UNIT_DIR/$UNIT_NAME-failed.service" <<UNIT
+[Unit]
+Description=Say out loud that the Acuttis punch run failed
+
+[Service]
+Type=oneshot
+ExecStart=$(command -v bash) -c '\
+  url=\$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?NOTIFY_URL[[:space:]]*=[[:space:]]*//p" "$ENV_FILE" | tail -1); \
+  [ -n "\$url" ] || exit 0; \
+  $(command -v curl) --silent --show-error --max-time 15 \
+    --header "Title: Punch run did not start" \
+    --header "Priority: urgent" \
+    --header "Tags: rotating_light" \
+    --data "systemd could not run acuttis-point. Punch by hand and check: journalctl --user -u acuttis-point.service -n 20" \
+    "\$url" >/dev/null'
+UNIT
 
 cat >"$UNIT_DIR/$UNIT_NAME.service" <<UNIT
 [Unit]
 Description=Register the timekeeping punch due now on Acuttis
 After=network-online.target
 Wants=network-online.target
+OnFailure=$UNIT_NAME-failed.service
 
 [Service]
 Type=oneshot

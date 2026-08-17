@@ -32,12 +32,20 @@ let
       gleam deps download
     '';
 
-    installPhase = "cp -r build/packages $out";
+    # Only the package sources. `gleam.lock` is a lock file whose presence at the
+    # end of a download is not guaranteed, and one stray empty file changes the
+    # hash — which it did on 2026-08-17, leaving the build unable to reproduce
+    # itself. The package contents themselves are pinned by the outer_checksum in
+    # manifest.toml, so gleam verifies them regardless of this hash.
+    installPhase = ''
+      cp -r build/packages $out
+      rm -f $out/gleam.lock
+    '';
 
     dontFixup = true;
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-nmu9WjhHbjSKBssR4PQayNxe5RGa6SopDfYA2Yc4QVU=";
+    outputHash = "sha256-jQsAYlNRP1Ol0k3RNOEWBkfcrwmDpvUnAeo8f3P0bIE=";
   };
 in
 stdenvNoCC.mkDerivation {
