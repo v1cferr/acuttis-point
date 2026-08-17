@@ -53,6 +53,9 @@ pub fn port(
         page_selectors.submit_button,
         credentials.username(secrets),
         credentials.reveal_password(secrets),
+        // What a restored session is checked against: reaching this control is
+        // the difference between a live session and a URL that looks like one.
+        page_selectors.punch_trigger,
       )
       |> promise.map(translate)
     },
@@ -171,6 +174,7 @@ fn ffi_sign_in(
   submit_selector: String,
   username: String,
   password: String,
+  trigger_selector: String,
 ) -> Promise(Result(Nil, Failure))
 
 @external(javascript, "./playwright_ffi.mjs", "punchTexts")

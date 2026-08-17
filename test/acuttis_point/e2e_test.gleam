@@ -299,7 +299,7 @@ pub fn a_saved_session_skips_the_sign_in_form_test() {
   let assert Ok(secrets) = credentials.from_env(settings_env)
   let page_selectors = selectors.from_env(settings_env)
 
-  // Primeira: passa pelo formulário e salva a sessão.
+  // The first run goes through the form and saves the session.
   use first <- promise.await(runner.run(
     settings: settings,
     secrets: secrets,
@@ -309,8 +309,8 @@ pub fn a_saved_session_skips_the_sign_in_form_test() {
   let #(_, _, first_outcome) = decided(first.report)
   assert first_outcome == report.Withheld
 
-  // Segunda: com a sessão no lugar, uma senha errada não faria diferença —
-  // se ela chegasse ao formulário, a rodada quebraria em Authenticating.
+  // The second run has a session, so a wrong password makes no difference: if it
+  // reached the form at all, the run would break at Authenticating.
   let assert Ok(wrong) =
     credentials.from_env(
       dict.from_list([
@@ -329,6 +329,78 @@ pub fn a_saved_session_skips_the_sign_in_form_test() {
   let #(day, _, second_outcome) = decided(second.report)
   assert day == state.Waiting(punch.LunchStart)
   assert second_outcome == report.Withheld
+  promise.resolve(Nil)
+}
+
+// The failure that switched session reuse off in the first place. An expired
+// token left Acuttis rendering a page that was not /signin, the adapter read the
+// URL and concluded it was signed in, and every step after that failed for
+// reasons that had nothing to do with the cause.
+//
+// So a restored session is now checked against the control the run exists to
+// click, and a session that cannot reach it is thrown away.
+pub fn a_stale_session_is_discarded_and_the_run_signs_in_again_test() {
+  let session = "build/e2e-stale-session.json"
+  files.remove(session)
+
+  use base_url <- promise.await(fixture.start(
+    registered: list.append(yesterday, [today_at("07:58")]),
+    lands_at: today_at("12:04"),
+  ))
+
+  let settings_env = env(base_url, [#("SESSION_FILE", session)])
+  let assert Ok(settings) = config.from_env(settings_env)
+  let assert Ok(secrets) = credentials.from_env(settings_env)
+  let page_selectors = selectors.from_env(settings_env)
+
+  let run = fn(with: credentials.Credentials) {
+    runner.run(
+      settings: settings,
+      secrets: with,
+      now: moment("12:04"),
+      port: playwright.port(settings, page_selectors),
+    )
+  }
+
+  // A dry run first, only to leave a session behind.
+  let assert Ok(dry) =
+    config.from_env(dict.insert(settings_env, "DRY_RUN", "true"))
+  use first <- promise.await(runner.run(
+    settings: dry,
+    secrets: secrets,
+    now: moment("12:04"),
+    port: playwright.port(dry, page_selectors),
+  ))
+  let #(_, _, first_outcome) = decided(first.report)
+  assert first_outcome == report.Withheld
+
+  fixture.expire_sessions()
+
+  // With a wrong password, a run that correctly discards the dead session ends
+  // up at the form and says so. Before this fix it broke somewhere later, with a
+  // message about a missing element.
+  let assert Ok(wrong) =
+    credentials.from_env(
+      dict.from_list([
+        #("ACUTTIS_USERNAME", fixture.username),
+        #("ACUTTIS_PASSWORD", "this-password-is-no-good"),
+      ]),
+    )
+  use rejected <- promise.await(run(wrong))
+  let assert report.Broke(stage: stage, ..) = rejected.report
+  assert stage == report.Authenticating
+
+  // And with the right password it signs in again and the punch still lands,
+  // which is the part that matters: a dead session costs one sign-in, not a day.
+  use recovered <- promise.await(run(secrets))
+  use _ <- promise.await(fixture.stop())
+
+  let #(_, chosen, outcome) = decided(recovered.report)
+  assert chosen
+    == decision.Register(punch: punch.LunchStart, expected_at: at("12:00"))
+  assert outcome == report.Confirmed(at: at("12:04"))
+  assert fixture.punches()
+    == list.append(yesterday, [today_at("07:58"), today_at("12:04")])
   promise.resolve(Nil)
 }
 

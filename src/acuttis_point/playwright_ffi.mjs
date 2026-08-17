@@ -19,6 +19,11 @@ const DETAIL_LIMIT = 300;
 // and the whole step timeout would be spent waiting to say so.
 const ROW_WAIT_MS = 5000;
 
+// How long a restored session gets to prove itself. Short on purpose: a dead one
+// is thrown away and the run signs in with the password, so waiting the full
+// step timeout here would only delay the thing that works.
+const SESSION_PROBE_MS = 5000;
+
 const ok = (value) => Result$Ok(value);
 
 const fail = (kind, detail) =>
@@ -82,9 +87,51 @@ export async function open(headless, timeoutMs, sessionPath, proxyServer) {
     }
     context.setDefaultTimeout(timeoutMs);
     const page = await context.newPage();
-    return ok({ browser, context, page, sessionPath });
+    // options and timeoutMs travel with the session so a dead one can be
+    // replaced mid-run by a context built the same way.
+    return ok({ browser, context, page, sessionPath, options, timeoutMs });
   } catch (error) {
     return fail("launch", error.message);
+  }
+}
+
+// Whether a restored session can still reach the control the run exists to
+// click. Nothing else is worth asking: a session that cannot punch is not a
+// session, however valid its cookie looks.
+async function sessionStillWorks(session, triggerSelector) {
+  // Nothing to probe for leaves the URL as the only evidence there is.
+  if (!triggerSelector) return true;
+
+  await session.page.waitForLoadState("networkidle").catch(() => {});
+
+  return await session.page
+    .waitForSelector(triggerSelector, {
+      state: "visible",
+      timeout: SESSION_PROBE_MS,
+    })
+    .then(() => true)
+    .catch(() => false);
+}
+
+// Throw the session away and start over on a clean context.
+//
+// A new context rather than a cleared one, and that is the whole point: the init
+// script that replays the saved sessionStorage is registered on the context, so
+// clearing cookies and reloading would put the dead token straight back.
+async function startFresh(session, baseUrl) {
+  try {
+    if (session.sessionPath) rmSync(session.sessionPath, { force: true });
+    await session.context.close();
+
+    session.context = await session.browser.newContext(session.options);
+    session.context.setDefaultTimeout(session.timeoutMs);
+    session.page = await session.context.newPage();
+    await session.page.goto(`${baseUrl}/signin`, {
+      waitUntil: "domcontentloaded",
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, detail: `discarding a dead session: ${error.message}` };
   }
 }
 
@@ -132,8 +179,9 @@ export async function signIn(
   submitSelector,
   username,
   password,
+  triggerSelector,
 ) {
-  const { page } = session;
+  let { page } = session;
 
   try {
     await page.goto(`${baseUrl}/dashboard`, { waitUntil: "domcontentloaded" });
@@ -143,14 +191,31 @@ export async function signIn(
       : fail("unreachable", error.message);
   }
 
-  // Acuttis sends an unauthenticated visitor to /signin. Landing anywhere else
-  // means a session is already in place and there is nothing to sign in to —
-  // which is the whole point of keeping the storage state between runs.
+  // Acuttis sends an unauthenticated visitor to /signin, so landing anywhere
+  // else suggests a session is already in place. Suggests, not proves: an
+  // expired token got the application to render a page that was not /signin and
+  // had no punch control on it either, and taking that as signed in is why
+  // session reuse was switched off. So the URL is a hint and the punch control
+  // is the answer.
   if (!onSignInPage(page)) {
-    await page.waitForLoadState("networkidle").catch(() => {});
-    // Refresh it anyway: the cookie's expiry moves as it is used.
-    await saveSession(session);
-    return ok(undefined);
+    if (await sessionStillWorks(session, triggerSelector)) {
+      // Refresh it anyway: the cookie's expiry moves as it is used.
+      await saveSession(session);
+      return ok(undefined);
+    }
+
+    const restarted = await startFresh(session, baseUrl);
+    if (!restarted.ok) return fail("launch", restarted.detail);
+    page = session.page;
+
+    // Signed out and back at the form, or the fresh context is not honest about
+    // what it carries.
+    if (!onSignInPage(page)) {
+      return fail(
+        "auth",
+        "the session was discarded but the application still will not show the sign-in form",
+      );
+    }
   }
 
   try {
