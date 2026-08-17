@@ -8,6 +8,10 @@ let
 
   timeType = lib.types.strMatching "([01][0-9]|2[0-3]):[0-5][0-9]";
 
+  # toIntBase10, not toInt: an HH:MM is always zero padded, and lib.toInt calls
+  # "07" ambiguous between octal and decimal and throws rather than choose.
+  minutes = time: lib.toIntBase10 (lib.substring 0 2 time) * 60 + lib.toIntBase10 (lib.substring 3 2 time);
+
   dateType = lib.types.strMatching "[0-9]{4}-[0-9]{2}-[0-9]{2}";
 
   weekdayType = lib.types.enum [
@@ -163,6 +167,27 @@ in
       '';
     };
 
+    preflightLeadMinutes = lib.mkOption {
+      type = lib.types.ints.between 0 240;
+      default = 15;
+      example = 15;
+      description = ''
+        Rehearse each punch this many minutes before it is due: sign in, read the
+        day, reach the punch button and check a click would land on it, then stop
+        without clicking. Notifies either way, ignoring `notifyOn`.
+
+        It exists because the two failures this automation has had in production
+        were both in the click, and both were reported after the window had
+        closed — too late for anything but punching by hand. The lead time is how
+        long there is to react, so it wants to be long enough to log in and do it
+        manually, and short enough that the page cannot change in between.
+
+        Zero installs no rehearsals. The rehearsal timer is never jittered: it
+        would defeat the purpose for a rehearsal to drift into the window it runs
+        ahead of.
+      '';
+    };
+
     punchListSelector = lib.mkOption {
       type = lib.types.nullOr lib.types.nonEmptyStr;
       default = null;
@@ -263,7 +288,6 @@ in
       {
         assertion =
           let
-            minutes = time: lib.toInt (lib.substring 0 2 time) * 60 + lib.toInt (lib.substring 3 2 time);
             guaranteed =
               minutes cfg.schedule.lunchEnd - minutes cfg.schedule.lunchStart - cfg.toleranceMinutes;
           in
@@ -279,7 +303,6 @@ in
       {
         assertion =
           let
-            minutes = time: lib.toInt (lib.substring 0 2 time) * 60 + lib.toInt (lib.substring 3 2 time);
           in
           cfg.sweepTime == null
           || minutes cfg.sweepTime
@@ -299,6 +322,16 @@ in
           is longer than toleranceMinutes (${toString cfg.toleranceMinutes}),
           so a delayed run could arrive after its own window had closed and
           refuse to register anything.
+        '';
+      }
+      {
+        assertion =
+          cfg.preflightLeadMinutes == 0 || minutes cfg.schedule.entry >= cfg.preflightLeadMinutes;
+        message = ''
+          services.acuttis-point.preflightLeadMinutes
+          (${toString cfg.preflightLeadMinutes}) reaches back past midnight from
+          schedule.entry (${cfg.schedule.entry}), so the first rehearsal would
+          fall on the day before the punch it is rehearsing. Shorten the lead.
         '';
       }
     ];
@@ -374,6 +407,26 @@ in
         RestrictSUIDSGID = true;
         # Chromium sandboxes itself with user namespaces and needs /dev/shm, so
         # the tighter sandboxing options are deliberately left off.
+      };
+    };
+
+    # The rehearsal is the punch run with PREFLIGHT set, and it inherits the
+    # punch service's environment and sandbox by reference rather than by copy.
+    # That is not brevity: a rehearsal that could drift out of step with the run
+    # it rehearses would be testing something else.
+    systemd.services.acuttis-point-preflight = lib.mkIf (cfg.preflightLeadMinutes > 0) {
+      description = "Rehearse the next Acuttis punch without registering it";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+
+      environment = config.systemd.services.acuttis-point.environment // {
+        PREFLIGHT = "true";
+      };
+
+      serviceConfig = config.systemd.services.acuttis-point.serviceConfig // {
+        # A rehearsal that finds trouble exits 1, and the unit should show red:
+        # that is the second way of noticing, after the notification.
+        SuccessExitStatus = [ 0 ];
       };
     };
 

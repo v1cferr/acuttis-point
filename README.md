@@ -139,6 +139,39 @@ arrive after its own window had closed and refuse to register anything. The
 NixOS module asserts this; `scripts/schedule.sh` uses nine minutes against a
 default tolerance of ten.
 
+### The rehearsal, fifteen minutes early
+
+Both failures this automation has had in production were in the click, and both
+were reported after the window had closed — by which time the only remedy left
+was punching by hand, which is the thing this project exists to stop needing.
+
+So fifteen minutes before each punch, the same program runs with `PREFLIGHT=true`
+and rehearses it: signs in, reads the day, opens the modal, reaches the punch
+button and asks whether a click would land on it. That last step is Playwright's
+trial mode, which runs every check a real click runs — visible, enabled, stable,
+not obscured — and then declines to dispatch the event. It is what makes this a
+rehearsal rather than an opinion about the page.
+
+It notifies either way, ignoring `NOTIFY_ON`: hearing in advance that the next
+punch will work is the entire reason it runs.
+
+```
+2026-08-17 12:20 preflight=READY state=WAITING(LUNCH_START) punches="ENTRY@08:12" next=LUNCH_START
+```
+
+A rehearsal cannot punch, and not as a matter of intent: the only operation it
+can reach that registers anything is the port's `verify`, whose job is to stop
+one step short, and a test asserts the port only ever sees `open`, `sign_in`,
+`read_punches`, `verify` and `close`. On a finished day it does not reach for the
+button at all — there is none left to rehearse.
+
+Its timer is deliberately unlike the punch timer in two ways. It carries no
+jitter, because a rehearsal free to drift nine minutes later could land inside
+the window it is supposed to run ahead of. And it is not `Persistent`: a
+rehearsal is only worth anything before its punch, so running one on resume,
+after the window it warned about had already closed, would be reporting
+yesterday's weather. `preflightLeadMinutes = 0` installs none of it.
+
 ### Scheduling without NixOS
 
 `scripts/schedule.sh` installs a user systemd timer from the current `.env`,
@@ -151,6 +184,10 @@ configuration:
 ./scripts/schedule.sh --status                # what is scheduled now
 ./scripts/schedule.sh --remove                # stop and forget it
 ```
+
+`all` also installs the rehearsals, on their own timer, fifteen minutes ahead of
+each punch. `PREFLIGHT` stays false in `.env`: the rehearsal unit sets it itself,
+and the process environment wins over the file.
 
 Nothing reschedules itself: systemd is told the times up front, so the script
 has to be re-run after `.env` changes. It prints the next elapse, so the result
@@ -239,6 +276,8 @@ body — so any endpoint taking a POST works.
 | Registered | default | `ENTRY at 07:57` |
 | Refused, failed | high | the reason, same text as the log |
 | Nothing to do | low, silent | the reason |
+| Rehearsal, ready | default | `Ready to punch LUNCH_START` |
+| Rehearsal, not ready | high | what stopped it, with time left to act |
 
 `NOTIFY_ON` decides which runs are worth a buzz: `always`, `action` (the
 default — silent when there was nothing to do) or `problem`.
