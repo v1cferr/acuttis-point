@@ -80,7 +80,8 @@ const PAGE = String.raw`<!doctype html>
     history.replaceState({}, "", "/dashboard");
     root.innerHTML = ${"`"}
       <h1>Dashboard</h1>
-      <a class="waves-effect tooltipped size-item-navbar"><i>touch_app</i></a>
+      <a class="waves-effect tooltipped size-item-navbar" data-tooltip="Marcar Ponto"><i>touch_app</i></a>
+      <a class="waves-effect size-item-navbar"><i>settings_overscan</i></a>
       <div id="mark_modal" class="modal" hidden>
         <div id="punch_view">
           <span class="styles_clock__nR8e0">00:00:00</span>
@@ -104,7 +105,13 @@ const PAGE = String.raw`<!doctype html>
         (b) => b.textContent.trim() === label,
       );
 
-    root.querySelector("a.size-item-navbar").addEventListener("click", () => {
+    // The tooltip, like the real navbar since 2026-08-19: two anchors share the
+    // class and only one of them punches.
+    root.querySelector('a[data-tooltip="Marcar Ponto"]').addEventListener("click", async () => {
+      // A session poisoned against a newer frontend: the trigger is right there
+      // and visible, and clicking it opens nothing.
+      const { broken } = await fetch("/api/ui").then((r) => r.json()).catch(() => ({}));
+      if (broken) return;
       modal.hidden = false;
     });
 
@@ -168,6 +175,7 @@ export function start(existingPunches, landsAt) {
     // A token is the generation it was minted in, so expiring every session is
     // one increment and an old token stops matching.
     let generation = 1;
+    let broken = false;
 
     const server = createServer((request, response) => {
       const path = new URL(request.url, "http://localhost").pathname;
@@ -178,6 +186,12 @@ export function start(existingPunches, landsAt) {
         const newest = punches.slice(-RECEIPT_ROWS).reverse();
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify(newest));
+        return;
+      }
+
+      if (path === "/api/ui") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ broken }));
         return;
       }
 
@@ -209,7 +223,12 @@ export function start(existingPunches, landsAt) {
     });
 
     server.listen(0, "127.0.0.1", () => {
-      state = { server, punches, expire: () => (generation += 1) };
+      state = {
+        server,
+        punches,
+        expire: () => (generation += 1),
+        breakModal: () => (broken = true),
+      };
       resolve(server.address().port);
     });
   });
@@ -220,6 +239,12 @@ export function start(existingPunches, landsAt) {
 // the sign-in page, which is the case worth testing.
 export function expireSessions() {
   if (state?.expire) state.expire();
+}
+
+// The trigger stays visible and stops opening the modal, which is how a session
+// carried across an Acuttis frontend change failed on 2026-08-19.
+export function breakPunchModal() {
+  if (state?.breakModal) state.breakModal();
 }
 
 // What the fixture holds now, so a test can prove a dry run changed nothing.

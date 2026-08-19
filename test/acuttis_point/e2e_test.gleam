@@ -404,6 +404,54 @@ pub fn a_stale_session_is_discarded_and_the_run_signs_in_again_test() {
   promise.resolve(Nil)
 }
 
+// 2026-08-19: Acuttis changed its navbar, a saved session from the day before
+// stopped being able to open the punch modal, and nothing ever threw that file
+// away. Three punches and three rehearsals failed the same way, all day, and
+// none of them would have recovered on their own.
+//
+// A session that leads to a broken interface is now discarded, so the next run
+// signs in clean. It does not rescue the run that found the problem — that one
+// still fails, and should — but it stops one bad file from owning the week.
+pub fn a_session_that_leads_to_a_broken_interface_is_thrown_away_test() {
+  let session = "build/e2e-poisoned-session.json"
+  files.remove(session)
+
+  use base_url <- promise.await(fixture.start(
+    registered: list.append(yesterday, [today_at("07:58")]),
+    lands_at: today_at("12:04"),
+  ))
+
+  let settings_env =
+    env(base_url, [#("SESSION_FILE", session), #("DRY_RUN", "true")])
+  let assert Ok(settings) = config.from_env(settings_env)
+  let assert Ok(secrets) = credentials.from_env(settings_env)
+  let page_selectors = selectors.from_env(settings_env)
+
+  let run = fn() {
+    runner.run(
+      settings: settings,
+      secrets: secrets,
+      now: moment("12:04"),
+      port: playwright.port(settings, page_selectors),
+    )
+  }
+
+  use _ <- promise.await(run())
+  assert files.exists(session)
+
+  // The interface changes under it: the trigger is still visible, and clicking
+  // it opens nothing. Exactly what a visible-trigger check cannot tell apart.
+  fixture.break_punch_modal()
+
+  use blocked <- promise.await(run())
+  use _ <- promise.await(fixture.stop())
+
+  let assert report.Broke(stage: stage, ..) = blocked.report
+  assert stage == report.ReadingPunches
+  assert !files.exists(session)
+  promise.resolve(Nil)
+}
+
 pub fn discovery_finds_the_punch_list_selector_test() {
   use base_url <- promise.await(fixture.start(
     registered: list.append(yesterday, [today_at("07:58")]),
@@ -423,7 +471,12 @@ pub fn discovery_finds_the_punch_list_selector_test() {
 
   let text = discovery.to_text(found)
   assert string.contains(text, "nothing was clicked")
-  assert string.contains(text, "PUNCH_TRIGGER_SELECTOR \"a.size-item-navbar\"")
+  // The tooltip, not the class: the fixture carries the second anchor Acuttis
+  // added on 2026-08-19, so a selector matching both would be caught here.
+  assert string.contains(
+    text,
+    "PUNCH_TRIGGER_SELECTOR \"a.size-item-navbar[data-tooltip=\"Marcar Ponto\"]\" matches 1",
+  )
 
   // Discovery cannot reach the punch rows, and this pins that down rather than
   // pretending otherwise: Acuttis renders them only once the receipt is opened,

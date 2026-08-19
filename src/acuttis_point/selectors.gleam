@@ -51,7 +51,12 @@ const default_submit_button = "form.login-form button[type=submit]"
 
 /// An anchor carrying the `touch_app` icon, not a button: the `modal-trigger`
 /// class the public sign-in page uses does not exist once signed in.
-const default_punch_trigger = "a.size-item-navbar"
+/// The tooltip, not the class alone. On 2026-08-19 Acuttis added a second
+/// `a.size-item-navbar` next to this one — a `settings_overscan` control — and
+/// the class stopped identifying anything: the click went to whichever came
+/// first and the modal never opened. Every run that day failed, all three
+/// punches and all three rehearsals.
+const default_punch_trigger = "a.size-item-navbar[data-tooltip=\"Marcar Ponto\"]"
 
 const default_punch_modal = "#mark_modal"
 

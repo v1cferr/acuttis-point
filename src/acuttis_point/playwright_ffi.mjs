@@ -88,11 +88,40 @@ export async function open(headless, timeoutMs, sessionPath, proxyServer) {
     context.setDefaultTimeout(timeoutMs);
     const page = await context.newPage();
     // options and timeoutMs travel with the session so a dead one can be
-    // replaced mid-run by a context built the same way.
-    return ok({ browser, context, page, sessionPath, options, timeoutMs });
+    // replaced mid-run by a context built the same way. `restored` records that
+    // this run started from a saved session, which is what makes a later failure
+    // attributable to it.
+    return ok({
+      browser,
+      context,
+      page,
+      sessionPath,
+      options,
+      timeoutMs,
+      restored: saved !== null,
+    });
   } catch (error) {
     return fail("launch", error.message);
   }
+}
+
+// A saved session that leads to a broken interface is thrown away, so the next
+// run signs in clean instead of meeting the same wall.
+//
+// This is what turned one bad session file into a whole day of failures on
+// 2026-08-19: three punches and three rehearsals, every one of them failing the
+// same way, because nothing ever discarded the file. Reaching the punch control
+// was already checked at sign-in and the check passed — the trigger was visible
+// on that page. Visible was not the same as working.
+//
+// Only for a restored session: a fresh sign-in that cannot open the interface is
+// telling the truth about the interface, and deleting a file would hide it.
+function discardIfRestored(session, outcome) {
+  const interfaceFailure = outcome?.[0]?.[0] === "interface";
+  if (session.restored && session.sessionPath && interfaceFailure) {
+    rmSync(session.sessionPath, { force: true });
+  }
+  return outcome;
 }
 
 // Whether a restored session can still reach the control the run exists to
@@ -272,7 +301,7 @@ export async function punchTexts(
     receiptSelector,
     listSelector,
   );
-  if (blocked) return blocked;
+  if (blocked) return discardIfRestored(session, blocked);
 
   try {
     // Every row of the receipt, across all the days it lists. Which of them
@@ -418,7 +447,7 @@ export async function verifyPunchable(
     receiptSelector,
     listSelector,
   );
-  if (blocked) return blocked;
+  if (blocked) return discardIfRestored(session, blocked);
 
   // Same order as registering: Voltar closes the modal, so it has to be gone
   // before the trigger reopens it on the punch view.

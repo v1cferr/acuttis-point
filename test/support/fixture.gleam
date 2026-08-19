@@ -42,6 +42,15 @@ pub fn unreachable() -> String {
   "http://127.0.0.1:9"
 }
 
+/// Leave the trigger visible and stop the modal from opening, the way a session
+/// kept across an Acuttis frontend change did on 2026-08-19.
+pub fn break_punch_modal() -> Nil {
+  ffi_break_punch_modal()
+}
+
+@external(javascript, "./fixture_ffi.mjs", "breakPunchModal")
+fn ffi_break_punch_modal() -> Nil
+
 @external(javascript, "./fixture_ffi.mjs", "expireSessions")
 fn ffi_expire_sessions() -> Nil
 

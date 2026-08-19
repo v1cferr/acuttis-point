@@ -10,7 +10,8 @@ pub fn the_defaults_are_the_live_interface_test() {
   assert loaded.submit_button == "form.login-form button[type=submit]"
   // An anchor, not a button: the sign-in page's `modal-trigger` does not exist
   // once signed in.
-  assert loaded.punch_trigger == "a.size-item-navbar"
+  assert loaded.punch_trigger
+    == "a.size-item-navbar[data-tooltip=\"Marcar Ponto\"]"
   assert loaded.punch_modal == "#mark_modal"
   assert loaded.punch_list == "div.styles_containerMarkingAddress__lLpPc"
 }
