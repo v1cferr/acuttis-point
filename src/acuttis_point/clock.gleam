@@ -145,6 +145,17 @@ pub fn minutes_since_midnight(time: TimeOfDay) -> Int {
 }
 
 /// Minutes from `from` to `to`, negative when `to` is earlier in the day.
+/// Later in the same day. Clamped at 23:59 rather than wrapping: everything
+/// this is used for is a window inside one working day, and a window that ran
+/// past midnight would be a bug wearing a plausible answer.
+pub fn add_minutes(time: TimeOfDay, minutes: Int) -> TimeOfDay {
+  let total = minutes_since_midnight(time) + minutes
+  case total >= 24 * 60 {
+    True -> TimeOfDay(minutes: 24 * 60 - 1)
+    False -> TimeOfDay(minutes: total)
+  }
+}
+
 pub fn minutes_between(from from: TimeOfDay, to to: TimeOfDay) -> Int {
   to.minutes - from.minutes
 }

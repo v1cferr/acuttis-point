@@ -63,18 +63,23 @@ export function appendToFile(path, text) {
   }
 }
 
-// HTTP headers are ASCII. Everything this project puts in a title is already
-// English, but a failure detail can carry page text in any language, so the
-// header path is transliterated rather than trusted.
-const asciiOnly = (value) =>
-  value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\x20-\x7e]/g, "?");
+// Node's fetch writes a header value as ISO-8859-1, one byte per character, so
+// a JS string with accents in it arrives mangled. Encoding to UTF-8 first and
+// re-reading those bytes as latin1 makes the header carry exactly the UTF-8
+// sequence ntfy decodes. Verified against ntfy.sh both ways: without this,
+// "saída" arrives as "sa\ufffdda"; with it, it arrives as itself.
+//
+// This replaced stripping the accents, which was a worse answer to a problem I
+// had guessed at rather than measured.
+const utf8Header = (value) => Buffer.from(value, "utf8").toString("latin1");
 
 // Two shapes, because ntfy takes an attachment as the request *body*:
-//   no file  → JSON body, so the message survives any alphabet
+//   no file  → JSON body
 //   a file   → the bytes as body, and the message moves into headers
+//
+// `action` is a label and a command, published to `commandUrl` when the button
+// is tapped. That is the whole remote control: the phone posts to a topic this
+// machine is listening on, so nothing here has to accept an inbound connection.
 export async function postNotification(
   url,
   title,
@@ -82,20 +87,46 @@ export async function postNotification(
   priority,
   tags,
   attachment,
+  actionLabel,
+  actionCommand,
+  commandUrl,
 ) {
   const levels = { min: 1, low: 2, default: 3, high: 4, urgent: 5 };
   const level = levels[priority] ?? 3;
+
+  // clear=true dismisses the notification once the button is tapped, so a
+  // notification still sitting there means it has not been acted on.
+  const actions =
+    actionLabel && actionCommand && commandUrl
+      ? [
+          {
+            action: "http",
+            label: actionLabel,
+            url: commandUrl,
+            method: "POST",
+            body: actionCommand,
+            clear: true,
+          },
+        ]
+      : [];
 
   try {
     const request = attachment
       ? {
           method: "PUT",
           headers: {
-            Title: asciiOnly(title),
-            Message: asciiOnly(body),
+            Title: utf8Header(title),
+            Message: utf8Header(body),
             Priority: String(level),
             Tags: tags,
             Filename: basename(attachment),
+            ...(actions.length
+              ? {
+                  Actions: utf8Header(
+                    `http, ${actionLabel}, ${commandUrl}, method=POST, body=${actionCommand}, clear=true`,
+                  ),
+                }
+              : {}),
           },
           body: readFileSync(attachment),
         }
@@ -107,6 +138,7 @@ export async function postNotification(
             message: body,
             priority: level,
             tags: tags ? tags.split(",") : [],
+            ...(actions.length ? { actions } : {}),
           }),
         };
 

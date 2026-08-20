@@ -5,6 +5,7 @@
 //// happened. Everything interesting lives in the modules below this one; this
 //// is only the wiring.
 
+import acuttis_point/authorised
 import acuttis_point/clock
 import acuttis_point/config
 import acuttis_point/credentials
@@ -37,6 +38,9 @@ type Outputs {
     log: Result(String, Nil),
     notify_url: Result(String, Nil),
     notify_on: notification.Trigger,
+    /// Where a tapped button publishes to. Read straight from the environment
+    /// like the rest of this, so even a configuration error can offer one.
+    command_url: Result(String, Nil),
   )
 }
 
@@ -76,16 +80,43 @@ pub fn main() -> Nil {
             rehearsal(out, checked)
           })
         _, _ ->
-          runner.run(
-            settings: setup.settings,
-            secrets: setup.secrets,
-            now: setup.now,
-            port: port,
-          )
-          |> promise.await(fn(finished) {
-            emit(out, finished.report)
-            send(out, finished.report, finished.screenshot)
-          })
+          case claimant(setup.settings.claim) {
+            // Spending a token that was offered earlier: a tap on the phone, or
+            // the deadline covering a tap nobody made.
+            Ok(offered) ->
+              authorised.run(
+                settings: setup.settings,
+                secrets: setup.secrets,
+                now: setup.now,
+                port: port,
+                offered: offered,
+              )
+              |> promise.await(fn(done) {
+                io.println(authorised.to_line(done))
+                system.set_exit_status(authorised.exit_code(done))
+                case done {
+                  authorised.Ran(finished:) -> {
+                    log(out, finished.report)
+                    send(out, finished.report, finished.screenshot)
+                  }
+                  // A declined claim is not a run. It is worth a line in the
+                  // journal and nothing on the phone: the common cause is a
+                  // second tap on a notification already honoured.
+                  authorised.Declined(..) -> promise.resolve(Nil)
+                }
+              })
+            Error(Nil) ->
+              runner.run(
+                settings: setup.settings,
+                secrets: setup.secrets,
+                now: setup.now,
+                port: port,
+              )
+              |> promise.await(fn(finished) {
+                emit(out, finished.report)
+                send(out, finished.report, finished.screenshot)
+              })
+          }
       }
 
       // The promise keeps the process alive; the exit status is set once it
@@ -166,6 +197,8 @@ fn send(
             // ntfy takes an attachment as the request body, so a screenshot
             // rides along with the message instead of arriving separately.
             attachment: screenshot,
+            action: button(message),
+            command_url: out.command_url,
           ))
           case sent {
             Ok(Nil) -> Nil
@@ -195,6 +228,8 @@ fn rehearsal(
         priority: message.priority,
         tags: message.tags,
         attachment: Error(Nil),
+        action: button(message),
+        command_url: out.command_url,
       ))
       case sent {
         Ok(Nil) -> Nil
@@ -203,6 +238,28 @@ fn rehearsal(
       }
       promise.resolve(Nil)
     }
+  }
+}
+
+/// Whether this run is here to spend a token, and with what.
+///
+/// `Error(Nil)` means it is not a claiming run at all, which is different from
+/// `Ok(Error(Nil))` — the deadline, which claims whatever is pending.
+fn claimant(claim: config.Claim) -> Result(Result(String, Nil), Nil) {
+  case claim {
+    config.NoClaim -> Error(Nil)
+    config.WithToken(token) -> Ok(Ok(token))
+    config.AtDeadline -> Ok(Error(Nil))
+  }
+}
+
+/// The notification's button, flattened to the pair the system layer takes.
+fn button(
+  message: notification.Notification,
+) -> Result(#(String, String), Nil) {
+  case message.action {
+    Ok(notification.Action(label:, command:)) -> Ok(#(label, command))
+    Error(Nil) -> Error(Nil)
   }
 }
 
@@ -216,7 +273,14 @@ fn announce(found: discovery.Discovery) -> Nil {
 fn emit(out: Outputs, record: report.Report) -> Nil {
   // One line to stdout, which under systemd is the journal.
   io.println(report.to_line(record))
+  log(out, record)
+  system.set_exit_status(report.exit_code(record))
+}
 
+/// The log file only. Split out because a claiming run has already printed its
+/// own line and set its own status — the record still belongs in the file, but
+/// printing it twice would make the journal read like two runs.
+fn log(out: Outputs, record: report.Report) -> Nil {
   case out.log {
     Error(Nil) -> Nil
     Ok(path) ->
@@ -227,8 +291,6 @@ fn emit(out: Outputs, record: report.Report) -> Nil {
           io.println("acuttis-point: " <> system.error_to_string(error))
       }
   }
-
-  system.set_exit_status(report.exit_code(record))
 }
 
 /// Read straight from the environment rather than from `Config`, so that a
@@ -250,6 +312,7 @@ fn outputs(env: Dict(String, String)) -> Outputs {
     log: present(env, "LOG_FILE"),
     notify_url: present(env, "NOTIFY_URL"),
     notify_on: notify_on,
+    command_url: present(env, "COMMAND_URL"),
   )
 }
 

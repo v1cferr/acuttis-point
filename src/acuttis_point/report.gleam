@@ -35,6 +35,10 @@ pub type RunOutcome {
   Confirmed(at: clock.TimeOfDay)
   /// A punch was due, and dry run mode stopped short of registering it.
   Withheld
+  /// A punch was due, and permission to make it was offered rather than taken.
+  /// The token is spendable until `expires_at`, by a tap on the phone or by the
+  /// deadline run that covers a tap nobody made.
+  Offered(token: String, expires_at: clock.TimeOfDay)
   /// The decision was to skip; Acuttis was left alone.
   NothingToDo
   /// The decision was to abort; Acuttis was left alone.
@@ -62,7 +66,7 @@ pub fn exit_code(report: Report) -> Int {
     Broke(..) -> 1
     Decided(outcome:, ..) ->
       case outcome {
-        Confirmed(_) | Withheld | NothingToDo -> 0
+        Confirmed(_) | Withheld | NothingToDo | Offered(..) -> 0
         Failed(..) -> 1
         Refused -> 2
       }
@@ -101,6 +105,7 @@ pub fn result_to_string(outcome: RunOutcome) -> String {
   case outcome {
     Confirmed(_) -> "SUCCESS"
     Withheld -> "DRY_RUN"
+    Offered(..) -> "OFFERED"
     NothingToDo -> "SKIPPED"
     Refused -> "ABORTED"
     Failed(..) -> "FAILED"
@@ -184,6 +189,11 @@ fn detail_line(report: Report) -> Result(String, Nil) {
       case outcome {
         Confirmed(_) -> Error(Nil)
         Withheld -> Ok("dry run, the punch was decided but not registered")
+        Offered(expires_at:, ..) ->
+          Ok(
+            "waiting for confirmation until "
+            <> clock.time_to_string(expires_at),
+          )
         Failed(stage:, detail:) ->
           Ok(stage_to_string(stage) <> " failed: " <> detail)
         NothingToDo | Refused ->

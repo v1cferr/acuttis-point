@@ -153,7 +153,13 @@ pub fn notify(
   priority priority: String,
   tags tags: String,
   attachment attachment: Result(String, Nil),
+  action action: Result(#(String, String), Nil),
+  command_url command_url: Result(String, Nil),
 ) -> Promise(Result(Nil, SystemError)) {
+  // A button with nowhere to publish to is not a button, so both halves have to
+  // be present or neither is sent.
+  let #(label, command) = result.unwrap(action, #("", ""))
+
   post_notification(
     url,
     title,
@@ -161,6 +167,9 @@ pub fn notify(
     priority,
     tags,
     result.unwrap(attachment, ""),
+    label,
+    command,
+    result.unwrap(command_url, ""),
   )
   |> promise.map(fn(detail) {
     case detail {
@@ -215,6 +224,9 @@ fn post_notification(
   priority: String,
   tags: String,
   attachment: String,
+  action_label: String,
+  action_command: String,
+  command_url: String,
 ) -> Promise(String)
 
 /// Sets the status the process will exit with, rather than exiting now, so

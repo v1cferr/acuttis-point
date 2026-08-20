@@ -13,6 +13,7 @@ import acuttis_point/clock
 import acuttis_point/config
 import acuttis_point/credentials
 import acuttis_point/decision
+import acuttis_point/pending
 import acuttis_point/punch
 import acuttis_point/report
 import acuttis_point/state
@@ -158,11 +159,57 @@ fn act(
     decision.Skip(_) ->
       promise.resolve(decided(now, outcome, report.NothingToDo))
     decision.Abort(_) -> promise.resolve(decided(now, outcome, report.Refused))
-    decision.Register(punch: target, ..) ->
-      case settings.dry_run {
-        True -> promise.resolve(decided(now, outcome, report.Withheld))
-        False -> register(port, session, now, outcome, target)
+    decision.Register(punch: target, expected_at:) ->
+      case settings.dry_run, settings.ask {
+        True, _ -> promise.resolve(decided(now, outcome, report.Withheld))
+        // Asking is not acting: the run stops here and the punch waits for a tap
+        // or for the deadline, whichever reaches the token first.
+        _, True ->
+          promise.resolve(offer(settings, now, outcome, target, expected_at))
+        _, _ -> register(port, session, now, outcome, target)
       }
+  }
+}
+
+/// Offer the permission rather than use it.
+///
+/// The token expires when the window does, which is what keeps a tap honest: the
+/// punch it authorises is the one that was due, at a time it could still have
+/// happened. The deadline run gets the same token, so the two cannot both spend
+/// it.
+fn offer(
+  settings: config.Config,
+  now: clock.Instant,
+  outcome: decision.Outcome,
+  target: punch.Punch,
+  expected_at: clock.TimeOfDay,
+) -> report.Report {
+  let token = pending.fresh_token()
+  let expires_at = clock.add_minutes(expected_at, settings.tolerance_minutes)
+
+  case
+    pending.offer(
+      path: settings.pending_file,
+      token: token,
+      punch: target,
+      date: now.date,
+      expires_at: expires_at,
+    )
+  {
+    Ok(_) ->
+      decided(
+        now,
+        outcome,
+        report.Offered(token: token, expires_at: expires_at),
+      )
+    // A token that could not be written is not an offer, and pretending
+    // otherwise would send a button that authorises nothing.
+    Error(detail) ->
+      decided(
+        now,
+        outcome,
+        report.Failed(stage: report.RegisteringPunch, detail: detail),
+      )
   }
 }
 

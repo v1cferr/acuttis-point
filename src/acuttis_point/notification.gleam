@@ -22,7 +22,23 @@ import acuttis_point/report
 import acuttis_point/state
 
 pub type Notification {
-  Notification(title: String, body: String, priority: String, tags: String)
+  Notification(
+    title: String,
+    body: String,
+    priority: String,
+    tags: String,
+    /// A button on the notification, for the one message that asks for
+    /// something instead of reporting it.
+    action: Result(Action, Nil),
+  )
+}
+
+/// What tapping the button does. The label is what it says; the command is what
+/// gets published to the command topic, and the only thing that authorises a
+/// punch. Where it is published is not decided here — a notification should not
+/// have to know an endpoint.
+pub type Action {
+  Action(label: String, command: String)
 }
 
 /// Which runs are worth a phone buzzing.
@@ -84,6 +100,21 @@ pub fn from_report(record: report.Report) -> Notification {
           quiet(
             "Simulação, nada foi registrado",
             target(chosen) <> " era agora, e DRY_RUN está ligado",
+          )
+        // The one notification that asks rather than tells. High priority
+        // because ignoring it has a cost, and the body says what that cost is
+        // not: the deadline will punch anyway, so a missed tap is a punch made
+        // late rather than a punch forgotten.
+        report.Offered(token:, expires_at:) ->
+          Notification(
+            title: "Bater " <> target(chosen) <> "?",
+            body: "Toque para bater agora. Se não tocar, eu bato sozinho às "
+              <> clock.time_to_string(expires_at)
+              <> ". Hoje: "
+              <> ptbr.registered(registered),
+            priority: "high",
+            tags: "alarm_clock",
+            action: Ok(Action(label: "Bater agora", command: "punch " <> token)),
           )
         report.NothingToDo -> quiet("Nada a fazer", why(chosen))
         report.Refused -> problem("Ponto NÃO foi batido", why(chosen))
@@ -164,15 +195,28 @@ fn good(title: String, body: String) -> Notification {
     body: body,
     priority: "default",
     tags: "white_check_mark",
+    action: Error(Nil),
   )
 }
 
 /// Low priority arrives without a sound, which is right for a run that had
 /// nothing to do.
 fn quiet(title: String, body: String) -> Notification {
-  Notification(title: title, body: body, priority: "low", tags: "zzz")
+  Notification(
+    title: title,
+    body: body,
+    priority: "low",
+    tags: "zzz",
+    action: Error(Nil),
+  )
 }
 
 fn problem(title: String, body: String) -> Notification {
-  Notification(title: title, body: body, priority: "high", tags: "warning")
+  Notification(
+    title: title,
+    body: body,
+    priority: "high",
+    tags: "warning",
+    action: Error(Nil),
+  )
 }

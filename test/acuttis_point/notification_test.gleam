@@ -74,6 +74,7 @@ pub fn a_registered_punch_says_which_and_when_test() {
       body: "bati a entrada às 07:57. Hoje: entrada 07:57",
       priority: "default",
       tags: "white_check_mark",
+      action: Error(Nil),
     )
 }
 
@@ -202,4 +203,44 @@ pub fn the_portuguese_agrees_with_the_punch_it_names_test() {
   }
   assert done(punch.LunchEnd)
     == "bati o retorno do almoço às 13:52. Hoje: retorno do almoço 13:52"
+}
+
+// The one notification that asks instead of telling, and the safety net stated
+// in the body: a tap nobody makes costs a later punch, not a missing one.
+pub fn an_offer_carries_a_button_and_says_what_happens_without_it_test() {
+  let offer =
+    notification.from_report(report.Decided(
+      at: moment("12:35"),
+      state: state.Waiting(punch.LunchStart),
+      decision: decision.Register(
+        punch: punch.LunchStart,
+        expected_at: at("12:35"),
+      ),
+      registered: [state.Registered(punch: punch.Entry, at: at("07:59"))],
+      outcome: report.Offered(token: "abc123", expires_at: at("12:45")),
+    ))
+
+  assert offer.title == "Bater a saída para o almoço?"
+  assert offer.body
+    == "Toque para bater agora. Se não tocar, eu bato sozinho às 12:45."
+    <> " Hoje: entrada 07:59"
+  assert offer.priority == "high"
+  assert offer.action
+    == Ok(notification.Action(label: "Bater agora", command: "punch abc123"))
+
+  // An offer is something happening, so the default trigger sends it.
+  let record =
+    report.Decided(
+      at: moment("12:35"),
+      state: state.Waiting(punch.LunchStart),
+      decision: decision.Register(
+        punch: punch.LunchStart,
+        expected_at: at("12:35"),
+      ),
+      registered: [],
+      outcome: report.Offered(token: "abc123", expires_at: at("12:45")),
+    )
+  assert notification.wanted(notification.OnAction, record)
+  // And it is not a problem, so the problem-only trigger stays quiet.
+  assert !notification.wanted(notification.OnProblem, record)
 }

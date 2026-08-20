@@ -50,6 +50,14 @@ pub type Config {
     /// Rehearse the punch shortly before it is due: sign in, read the day, and
     /// check the punch button would take a click. Registers nothing.
     preflight: Bool,
+    /// Ask instead of acting: decide as usual, then offer a one-time token and
+    /// let a tap on the phone spend it. Registers nothing itself.
+    ask: Bool,
+    /// Where that token lives. One file, and taking it is what authorises a
+    /// punch — see `pending`.
+    pending_file: String,
+    /// Spend a token that was offered earlier, and punch.
+    claim: Claim,
     /// Where to drop a screenshot when a run fails. The page at that moment is
     /// the only witness to an interface that changed.
     screenshot_dir: Result(String, Nil),
@@ -61,6 +69,17 @@ pub type Config {
     /// a single run.
     proxy_server: Result(String, Nil),
   )
+}
+
+/// Who is asking to spend the pending token.
+pub type Claim {
+  /// Nobody: this run is not here to spend anything.
+  NoClaim
+  /// A tap on the notification, quoting the token it was given.
+  WithToken(String)
+  /// The deadline, which takes whatever is pending. It has no token to quote
+  /// because nobody types one into a timer.
+  AtDeadline
 }
 
 pub type ConfigError {
@@ -79,6 +98,9 @@ pub type ConfigError {
   ScheduleOutOfOrder(earlier: punch.Punch, later: punch.Punch)
   /// The schedule could produce a lunch break shorter than allowed.
   LunchCouldBeTooShort(guaranteed: Int, required: Int)
+  /// Both ways of claiming at once. Refused rather than resolved, because the
+  /// two mean different things and guessing which was meant could punch.
+  ConflictingClaim
 }
 
 const default_base_url = "https://app.acuttis.com.br"
@@ -90,6 +112,8 @@ const default_timezone = "America/Sao_Paulo"
 const default_tolerance_minutes = 10
 
 const default_timeout_seconds = 30
+
+const default_pending_file = "state/pending.json"
 
 /// One hour, which is the legal minimum in Brazil for a working day over six
 /// hours. A floor rather than a default to aim at.
@@ -132,6 +156,15 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use headless <- result.try(boolean(env, "HEADLESS", True))
   use discover <- result.try(boolean(env, "DISCOVER", False))
   use preflight <- result.try(boolean(env, "PREFLIGHT", False))
+  use ask <- result.try(boolean(env, "ASK", False))
+  use claim_deadline <- result.try(boolean(env, "CLAIM_DEADLINE", False))
+  use claim <- result.try(case optional(env, "CLAIM_TOKEN"), claim_deadline {
+    Ok(_), True -> Error(ConflictingClaim)
+    Ok(token), False -> Ok(WithToken(token))
+    Error(Nil), True -> Ok(AtDeadline)
+    Error(Nil), False -> Ok(NoClaim)
+  })
+  let pending_file = lookup_or(env, "PENDING_FILE", default_pending_file)
   use proxy_server <- result.try(proxy(env, "PROXY_SERVER"))
   let screenshot_dir = optional(env, "SCREENSHOT_DIR")
 
@@ -158,6 +191,9 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     headless:,
     discover:,
     preflight:,
+    ask:,
+    pending_file:,
+    claim:,
     screenshot_dir:,
     proxy_server:,
   ))
@@ -263,6 +299,9 @@ pub fn error_to_string(error: ConfigError) -> String {
     EmptyValue(key:) -> key <> " is empty"
     InsecureUrl(key:, value:) ->
       key <> "=" <> value <> " must be an https:// url"
+    ConflictingClaim ->
+      "CLAIM_TOKEN and CLAIM_DEADLINE are both set, and they mean different"
+      <> " things; use one"
     UnsupportedProxy(key:, value:) ->
       key
       <> "="
