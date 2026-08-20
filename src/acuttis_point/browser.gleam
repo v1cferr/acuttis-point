@@ -44,6 +44,14 @@ pub type Port(session) {
     read_punches: fn(session, clock.Date) ->
       Promise(Result(List(state.Registered), BrowserError)),
     register: fn(session, punch.Punch) -> Promise(Result(Nil, BrowserError)),
+    /// Every row the receipt holds, across every day it lists, and whether the
+    /// list actually ran out. For auditing a timesheet rather than acting on
+    /// today.
+    ///
+    /// The second half matters: the receipt paginates, a page boundary can fall
+    /// inside a day, and a day read half way looks like a short day rather than
+    /// an incomplete one. False means the oldest day is not safe to judge.
+    history: fn(session) -> Promise(Result(#(List(String), Bool), BrowserError)),
     /// What the page looks like right now, in lines a human reads. Touches
     /// nothing: it is how the punch selectors get found without risking a
     /// click that registers a real punch.

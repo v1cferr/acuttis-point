@@ -58,6 +58,14 @@ pub type Config {
     pending_file: String,
     /// Spend a token that was offered earlier, and punch.
     claim: Claim,
+    /// Read the whole receipt and report the days that do not add up. Registers
+    /// nothing, clicks no punch control.
+    audit: Bool,
+    /// The dates already announced, so a day is only reported once. The days
+    /// already sent to Gestão de Pessoas stay wrong in Acuttis until they fix
+    /// them, and an audit repeating itself every evening teaches its reader to
+    /// ignore it.
+    announced_file: String,
     /// Where to drop a screenshot when a run fails. The page at that moment is
     /// the only witness to an interface that changed.
     screenshot_dir: Result(String, Nil),
@@ -115,6 +123,8 @@ const default_timeout_seconds = 30
 
 const default_pending_file = "state/pending.json"
 
+const default_announced_file = "state/announced.txt"
+
 /// One hour, which is the legal minimum in Brazil for a working day over six
 /// hours. A floor rather than a default to aim at.
 const default_min_lunch_minutes = 60
@@ -157,6 +167,8 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use discover <- result.try(boolean(env, "DISCOVER", False))
   use preflight <- result.try(boolean(env, "PREFLIGHT", False))
   use ask <- result.try(boolean(env, "ASK", False))
+  use audit <- result.try(boolean(env, "AUDIT", False))
+  let announced_file = lookup_or(env, "ANNOUNCED_FILE", default_announced_file)
   use claim_deadline <- result.try(boolean(env, "CLAIM_DEADLINE", False))
   use claim <- result.try(case optional(env, "CLAIM_TOKEN"), claim_deadline {
     Ok(_), True -> Error(ConflictingClaim)
@@ -194,6 +206,8 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     ask:,
     pending_file:,
     claim:,
+    audit:,
+    announced_file:,
     screenshot_dir:,
     proxy_server:,
   ))

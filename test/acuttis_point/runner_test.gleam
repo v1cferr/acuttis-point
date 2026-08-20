@@ -135,6 +135,7 @@ fn fake(
         }
         promise.resolve(behaviour.register)
       },
+      history: fn(_) { promise.resolve(Ok(#([], True))) },
       describe: fn(_session) {
         record("describe")
         promise.resolve(Ok(["url: /dashboard"]))

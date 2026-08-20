@@ -14,12 +14,17 @@
 //// The technical `detail` of a failure stays as it came — a Playwright timeout
 //// says more in its own words than in a translation of them.
 
+import acuttis_point/audit
 import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/preflight
 import acuttis_point/ptbr
 import acuttis_point/report
 import acuttis_point/state
+import acuttis_point/timesheet
+import gleam/int
+import gleam/list
+import gleam/string
 
 pub type Notification {
   Notification(
@@ -149,6 +154,47 @@ pub fn from_preflight(checked: preflight.Preflight) -> Notification {
       problem(
         "ATENÇÃO: não vai dar para bater",
         "Falhou " <> ptbr.stage(stage) <> ": " <> detail,
+      )
+  }
+}
+
+/// An audit only speaks up about a day nobody has been told about yet. It names
+/// the dates, because the next step is an e-mail that has to name them too.
+pub fn from_inspection(inspection: timesheet.Inspection) -> Notification {
+  case inspection {
+    timesheet.Unreadable(stage:, detail:, ..) ->
+      problem(
+        "Não consegui conferir o histórico",
+        "Falhou " <> ptbr.stage(stage) <> ": " <> detail,
+      )
+    timesheet.Audited(fresh: [], audited:, ..) ->
+      case audited.inconsistent {
+        [] ->
+          quiet("Histórico conferido", "todos os dias fecham com 4 marcações")
+        old ->
+          quiet(
+            "Histórico conferido",
+            int.to_string(list.length(old))
+              <> " dia(s) ainda pendente(s) com a GP, nenhum novo",
+          )
+      }
+    timesheet.Audited(fresh: days, ..) ->
+      problem(
+        case days {
+          [_] -> "1 dia novo para avisar a GP"
+          _ ->
+            int.to_string(list.length(days)) <> " dias novos para avisar a GP"
+        },
+        days
+          |> list.map(fn(day) {
+            clock.date_to_dmy(day.date)
+            <> ": "
+            <> ptbr.verdict(day.verdict)
+            <> " ("
+            <> audit.times_to_string(day.times)
+            <> ")"
+          })
+          |> string.join("\n"),
       )
   }
 }

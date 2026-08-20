@@ -17,6 +17,7 @@ import acuttis_point/report
 import acuttis_point/runner
 import acuttis_point/selectors
 import acuttis_point/system
+import acuttis_point/timesheet
 import gleam/dict.{type Dict}
 import gleam/io
 import gleam/javascript/promise
@@ -68,18 +69,47 @@ pub fn main() -> Nil {
 
       let port = playwright.port(setup.settings, setup.page_selectors)
 
-      let _ = case setup.settings.discover, setup.settings.preflight {
-        True, _ ->
+      let _ = case
+        setup.settings.discover,
+        setup.settings.preflight,
+        setup.settings.audit
+      {
+        // Reading the whole timesheet and saying which days do not add up.
+        // Touches no punch control at all.
+        _, _, True ->
+          timesheet.inspect(
+            secrets: setup.secrets,
+            now: setup.now,
+            port: port,
+            announced: setup.settings.announced_file,
+          )
+          |> promise.await(fn(inspected) {
+            io.println(timesheet.to_line(inspected))
+            io.println(timesheet.to_text(inspected))
+            system.set_exit_status(timesheet.exit_code(inspected))
+            use told <- promise.await(audited(out, inspected))
+            // Remembered only once it has actually been said out loud. A day
+            // written down as announced but never sent is a day dropped in
+            // silence, which is the one outcome this whole feature exists to
+            // prevent.
+            case told {
+              True ->
+                timesheet.remember(inspected, setup.settings.announced_file)
+              False -> Nil
+            }
+            promise.resolve(Nil)
+          })
+        True, _, _ ->
           discovery.discover(secrets: setup.secrets, now: setup.now, port: port)
           |> promise.map(announce)
-        _, True ->
+        _, True, _ ->
           preflight.check(secrets: setup.secrets, now: setup.now, port: port)
           |> promise.await(fn(checked) {
             io.println(preflight.to_line(checked))
             system.set_exit_status(preflight.exit_code(checked))
             rehearsal(out, checked)
           })
-        _, _ ->
+        _, _, _ ->
           case claimant(setup.settings.claim) {
             // Spending a token that was offered earlier: a tap on the phone, or
             // the deadline covering a tap nobody made.
@@ -260,6 +290,40 @@ fn button(
   case message.action {
     Ok(notification.Action(label:, command:)) -> Ok(#(label, command))
     Error(Nil) -> Error(Nil)
+  }
+}
+
+/// An audit notifies whenever it found something new, ignoring NOTIFY_ON for the
+/// same reason a rehearsal does: being told is the entire point of running it.
+///
+/// Returns whether the message actually went out, because the caller records the
+/// days it announced and must not record days nobody heard about.
+fn audited(
+  out: Outputs,
+  inspected: timesheet.Inspection,
+) -> promise.Promise(Bool) {
+  case out.notify_url {
+    Error(Nil) -> promise.resolve(False)
+    Ok(url) -> {
+      let message = notification.from_inspection(inspected)
+      use sent <- promise.await(system.notify(
+        url: url,
+        title: message.title,
+        body: message.body,
+        priority: message.priority,
+        tags: message.tags,
+        attachment: Error(Nil),
+        action: button(message),
+        command_url: out.command_url,
+      ))
+      case sent {
+        Ok(Nil) -> promise.resolve(True)
+        Error(error) -> {
+          io.println("acuttis-point: " <> system.error_to_string(error))
+          promise.resolve(False)
+        }
+      }
+    }
   }
 }
 

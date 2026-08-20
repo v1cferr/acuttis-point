@@ -10,6 +10,7 @@
 //// "retorno do almoço", "saída para o almoço" — so a notification and the
 //// message asking about a missing punch describe the same thing the same way.
 
+import acuttis_point/audit
 import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/punch
@@ -46,6 +47,25 @@ pub fn punch_with_article(target: punch.Punch) -> String {
 
 /// A clause rather than a noun, so it composes without having to agree with the
 /// gender of whatever word comes before it: "Falhou ao ler as marcações".
+/// What is wrong with a day, for the message that asks Gestão de Pessoas to fix
+/// it. "Faltando" and "sobrando" are what the correction is about, so they are
+/// the words to use.
+pub fn verdict(result: audit.Verdict) -> String {
+  case result {
+    audit.Complete -> "completo"
+    audit.Missing(found:) ->
+      "faltando "
+      <> int.to_string(audit.punches_per_day - found)
+      <> " marcação(ões)"
+    audit.Extra(found:) ->
+      "sobrando "
+      <> int.to_string(found - audit.punches_per_day)
+      <> " marcação(ões)"
+    audit.InProgress(found:) ->
+      "em andamento, " <> int.to_string(found) <> " de 4"
+  }
+}
+
 pub fn stage(step: report.Stage) -> String {
   case step {
     report.ReadingConfiguration -> "ao ler a configuração"

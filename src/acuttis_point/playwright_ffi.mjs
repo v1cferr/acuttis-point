@@ -12,6 +12,18 @@ const DETAIL_LIMIT = 300;
 // and the whole step timeout would be spent waiting to say so.
 const ROW_WAIT_MS = 5000;
 
+// Enough scrolls to reach a few months back, and a bound rather than a loop that
+// trusts the page.
+const HISTORY_ROUNDS = 60;
+const HISTORY_SETTLE_MS = 900;
+
+// How many rounds without growth end the scroll. Three, not one: with one, a
+// single slow fetch looks exactly like the end of the list. Two runs minutes
+// apart returned 42 days and then 19 before this, and the shorter read reported
+// itself as a complete audit — the failure mode of a bound that is too eager is
+// silence about the days it never saw.
+const HISTORY_STABLE_ROUNDS = 3;
+
 // is thrown away and the run signs in with the password, so waiting the full
 // step timeout here would only delay the thing that works.
 const ok = (value) => Result$Ok(value);
@@ -122,6 +134,73 @@ export async function signIn(
   await page.waitForLoadState("networkidle").catch(() => {});
 
   return ok(undefined);
+}
+
+// Every row the receipt has, not just the first page.
+//
+// The receipt paginates as it is scrolled, which is why reading a day never
+// needed this: today is always on the first page. An audit does need it, so this
+// scrolls the last row into view until the count stops growing. Bounded, because
+// a page that grows forever is a bug and waiting on it is not diagnosis.
+export async function historyTexts(
+  session,
+  triggerSelector,
+  modalSelector,
+  receiptSelector,
+  listSelector,
+) {
+  const { page } = session;
+
+  const blocked = await openReceipt(
+    page,
+    triggerSelector,
+    modalSelector,
+    receiptSelector,
+    listSelector,
+  );
+  if (blocked) return blocked;
+
+  try {
+    const rows = page.locator(listSelector);
+    let seen = 0;
+    let stable = 0;
+    // Whether the list actually ran out, as opposed to the loop running out.
+    // It decides whether the oldest day can be judged: a page boundary can fall
+    // in the middle of one, and a day read half way looks like a short day
+    // rather than an incomplete one. Observed exactly that on 16/06, which a
+    // truncated read called complete at two markings and a full read showed as
+    // three.
+    let exhausted = false;
+
+    for (let round = 0; round < HISTORY_ROUNDS; round++) {
+      const count = await rows.count();
+      if (count === 0) break;
+
+      if (count === seen) {
+        if (++stable >= HISTORY_STABLE_ROUNDS) {
+          exhausted = true;
+          break;
+        }
+      } else {
+        stable = 0;
+        seen = count;
+      }
+
+      await rows
+        .nth(count - 1)
+        .scrollIntoViewIfNeeded()
+        .catch(() => {});
+      await page.waitForTimeout(HISTORY_SETTLE_MS);
+    }
+
+    const texts = await rows.allTextContents();
+    // A Gleam tuple is a JS array.
+    return ok([texts.map((text) => text.replace(/\s+/g, " ").trim()), exhausted]);
+  } catch (error) {
+    return isTimeout(error)
+      ? fail("timeout", `reading the punch history (${listSelector})`)
+      : fail("interface", error.message);
+  }
 }
 
 export async function punchTexts(

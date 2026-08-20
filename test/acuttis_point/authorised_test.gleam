@@ -10,7 +10,7 @@ import acuttis_point/report
 import acuttis_point/runner
 import acuttis_point/state
 import gleam/dict
-import gleam/javascript/promise.{type Promise}
+import gleam/javascript/promise
 import gleam/list
 import support/files
 import support/spy
@@ -91,6 +91,7 @@ fn fake(
           Error(error) -> promise.resolve(Error(error))
         }
       },
+      history: fn(_) { promise.resolve(Ok(#([], True))) },
       describe: fn(_) { promise.resolve(Ok([])) },
       verify: fn(_) { promise.resolve(Ok(Nil)) },
       capture: fn(_, _) { promise.resolve(Ok(Nil)) },

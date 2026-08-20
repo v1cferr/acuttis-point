@@ -71,6 +71,9 @@ show_status() {
   echo "deadlines:"
   systemctl --user cat "$UNIT_NAME-deadline.timer" --no-pager 2>/dev/null |
     grep -E "OnCalendar|RandomizedDelaySec|Persistent" || echo "  not installed"
+  echo "audit:"
+  systemctl --user cat "$UNIT_NAME-audit.timer" --no-pager 2>/dev/null |
+    grep -E "OnCalendar|Persistent" || echo "  not installed"
   echo "listener:"
   systemctl --user is-active "$UNIT_NAME-listen.service" 2>/dev/null ||
     echo "  not installed"
@@ -81,11 +84,14 @@ remove() {
   systemctl --user disable --now "$UNIT_NAME-preflight.timer" 2>/dev/null || true
   systemctl --user disable --now "$UNIT_NAME-deadline.timer" 2>/dev/null || true
   systemctl --user disable --now "$UNIT_NAME-listen.service" 2>/dev/null || true
+  systemctl --user disable --now "$UNIT_NAME-audit.timer" 2>/dev/null || true
   rm -f "$UNIT_DIR/$UNIT_NAME-preflight.timer" \
     "$UNIT_DIR/$UNIT_NAME-preflight.service" \
     "$UNIT_DIR/$UNIT_NAME-deadline.timer" \
     "$UNIT_DIR/$UNIT_NAME-deadline.service" \
-    "$UNIT_DIR/$UNIT_NAME-listen.service"
+    "$UNIT_DIR/$UNIT_NAME-listen.service" \
+    "$UNIT_DIR/$UNIT_NAME-audit.timer" \
+    "$UNIT_DIR/$UNIT_NAME-audit.service"
   rm -f "$UNIT_DIR/$UNIT_NAME.timer" "$UNIT_DIR/$UNIT_NAME.service" \
     "$UNIT_DIR/$UNIT_NAME-failed.service"
   systemctl --user daemon-reload
@@ -386,6 +392,62 @@ UNIT
   systemctl --user restart "$UNIT_NAME-listen.service"
 fi
 
+# The audit: once a day, after the day is closed, reading the whole receipt and
+# saying which days do not add up. It clicks no punch control at all.
+#
+# Its own timer because it is not about today. It is about the mail from Gestão de
+# Pessoas that arrives weeks later naming a date, by which point the honest answer
+# is a reconstruction.
+audit_time="$(env_value AUDIT_TIME)"
+if [[ -n "$audit_time" ]]; then
+  [[ "$audit_time" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] ||
+    die "AUDIT_TIME in .env is '$audit_time', which is not HH:MM"
+
+  cat >"$UNIT_DIR/$UNIT_NAME-audit.service" <<UNIT
+[Unit]
+Description=Check the Acuttis timesheet for days that do not add up
+After=network-online.target
+Wants=network-online.target
+OnFailure=$UNIT_NAME-failed.service
+
+[Service]
+Type=oneshot
+Environment=ENV_FILE=$ENV_FILE
+Environment=LOG_FILE=$REPO/logs/runs.log
+Environment=ACUTTIS_BINARY=$binary
+Environment=AUDIT=true
+WorkingDirectory=$REPO
+# A day worth an e-mail exits 2, which shows the unit red on purpose.
+SuccessExitStatus=0
+ExecStart=$runner
+UNIT
+
+  {
+    echo "[Unit]"
+    echo "Description=Daily audit of the Acuttis timesheet"
+    echo
+    echo "[Timer]"
+    if [[ -n "$on_date" ]]; then
+      echo "OnCalendar=$on_date $audit_time:00"
+    else
+      echo "OnCalendar=$days *-*-* $audit_time:00"
+    fi
+    echo "Unit=$UNIT_NAME-audit.service"
+    echo "AccuracySec=1m"
+    # Persistent, unlike the punch timers: an audit is worth running late. It
+    # reports on days that are already over, so arriving after a suspend loses
+    # nothing.
+    echo "Persistent=true"
+    echo
+    echo "[Install]"
+    echo "WantedBy=timers.target"
+  } >"$UNIT_DIR/$UNIT_NAME-audit.timer"
+
+  systemctl --user daemon-reload
+  systemctl --user enable "$UNIT_NAME-audit.timer" >/dev/null
+  systemctl --user restart "$UNIT_NAME-audit.timer"
+fi
+
 # The rehearsals: same program, PREFLIGHT=true, on their own timer. Separate
 # because they must not be jittered — a rehearsal drifting nine minutes later
 # would land inside the window it is supposed to run ahead of.
@@ -436,6 +498,9 @@ if ((${#deadline_lines[@]} > 0)); then
   echo "  deadlines, which punch only what nobody confirmed:"
   printf '    %s\n' "${deadline_lines[@]}"
   echo "    each fires between its time and +2 minutes"
+fi
+if [[ -n "$audit_time" ]]; then
+  echo "  auditing the whole timesheet daily at $audit_time"
 fi
 if [[ -n "$(env_value COMMAND_URL)" ]]; then
   echo "  listening for taps on $(env_value COMMAND_URL)"

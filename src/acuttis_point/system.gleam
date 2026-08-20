@@ -179,6 +179,12 @@ pub fn notify(
   })
 }
 
+/// A file's contents, or nothing when it is not there. Absent and empty are the
+/// same answer for every caller here: a list nobody has written yet.
+pub fn read_or_empty(path: String) -> String {
+  read_file(path)
+}
+
 pub fn append_line(path: String, text: String) -> Result(Nil, SystemError) {
   case append_to_file(path, text <> "\n") {
     "" -> Ok(Nil)

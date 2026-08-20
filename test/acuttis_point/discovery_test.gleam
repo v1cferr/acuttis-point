@@ -55,6 +55,7 @@ fn fake(
         record("register")
         promise.resolve(Ok(Nil))
       },
+      history: fn(_) { promise.resolve(Ok(#([], True))) },
       describe: fn(_session) {
         record("describe")
         promise.resolve(describe)

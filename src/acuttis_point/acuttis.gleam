@@ -94,6 +94,49 @@ fn earliest_first(a: clock.TimeOfDay, b: clock.TimeOfDay) -> order.Order {
   int.compare(clock.minutes_since_midnight(a), clock.minutes_since_midnight(b))
 }
 
+/// The date and time a row carries, for reading days other than today.
+///
+/// Returns nothing for a row with either part missing, which is how a heading or
+/// a stray element gets left out rather than counted as a punch.
+pub fn read_row(text: String) -> Result(#(clock.Date, clock.TimeOfDay), Nil) {
+  use date <- result.try(find_date(text))
+  use time <- result.try(find_time(text))
+  Ok(#(date, time))
+}
+
+/// The first `DD/MM/YYYY` in the row. Scanned rather than parsed for the same
+/// reason as the time: the row carries a weekday and an address around it.
+fn find_date(text: String) -> Result(clock.Date, Nil) {
+  scan_date(string.to_graphemes(text))
+}
+
+fn scan_date(graphemes: List(String)) -> Result(clock.Date, Nil) {
+  case graphemes {
+    [] -> Error(Nil)
+    [_, ..rest] ->
+      case date_at_start(graphemes) {
+        Ok(date) -> Ok(date)
+        Error(Nil) -> scan_date(rest)
+      }
+  }
+}
+
+fn date_at_start(graphemes: List(String)) -> Result(clock.Date, Nil) {
+  case graphemes {
+    [d1, d2, "/", m1, m2, "/", y1, y2, y3, y4, ..] ->
+      case list.all([d1, d2, m1, m2, y1, y2, y3, y4], is_digit) {
+        False -> Error(Nil)
+        // The receipt writes DD/MM/YYYY; `parse_date` reads YYYY-MM-DD.
+        True ->
+          clock.parse_date(
+            y1 <> y2 <> y3 <> y4 <> "-" <> m1 <> m2 <> "-" <> d1 <> d2,
+          )
+          |> result.replace_error(Nil)
+      }
+    _ -> Error(Nil)
+  }
+}
+
 /// The first `HH:MM` in the row. Each row carries a date and a weekday around
 /// the time, so this scans rather than parsing the whole string.
 fn find_time(text: String) -> Result(clock.TimeOfDay, Nil) {

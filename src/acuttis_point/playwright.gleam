@@ -88,6 +88,19 @@ pub fn port(
       )
       |> promise.map(translate)
     },
+    history: fn(session) {
+      ffi_history_texts(
+        session,
+        page_selectors.punch_trigger,
+        page_selectors.punch_modal,
+        page_selectors.punch_receipt,
+        page_selectors.punch_list,
+      )
+      |> promise.map(fn(read) {
+        translate(read)
+        |> result.map(fn(pair) { #(array.to_list(pair.0), pair.1) })
+      })
+    },
     describe: fn(session) {
       ffi_describe(
         session,
@@ -169,6 +182,15 @@ fn ffi_sign_in(
   username: String,
   password: String,
 ) -> Promise(Result(Nil, Failure))
+
+@external(javascript, "./playwright_ffi.mjs", "historyTexts")
+fn ffi_history_texts(
+  session: Session,
+  trigger_selector: String,
+  modal_selector: String,
+  receipt_selector: String,
+  list_selector: String,
+) -> Promise(Result(#(Array(String), Bool), Failure))
 
 @external(javascript, "./playwright_ffi.mjs", "punchTexts")
 fn ffi_punch_texts(
