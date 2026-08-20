@@ -55,22 +55,60 @@ pub fn claim_path(path: String) -> String {
   path <> ".claimed"
 }
 
-/// Offer a token. Overwrites whatever was there: an unspent offer from an
-/// earlier window is stale by definition, and leaving it would let a stale tap
-/// punch the wrong thing.
+/// Whether an offer is new, or one that was already standing.
+///
+/// The difference is what a reminder is made of: asking again about the same
+/// punch must hand out the same token, or the button on the notification already
+/// sitting on the phone would stop working the moment a second one arrived.
+pub type Offer {
+  Minted(Pending)
+  Standing(Pending)
+}
+
+pub fn offered_token(offer: Offer) -> Pending {
+  case offer {
+    Minted(pending) | Standing(pending) -> pending
+  }
+}
+
+/// Offer a token, or hand back the one already offered for this punch today.
+///
+/// Anything else is overwritten: an unspent offer for a different punch, or from
+/// another day, is stale by definition, and leaving it would let an old
+/// notification punch the wrong thing.
 pub fn offer(
   path path: String,
   token token: String,
   punch target: punch.Punch,
   date date: clock.Date,
   expires_at expires_at: clock.TimeOfDay,
-) -> Result(Pending, String) {
-  let pending =
-    Pending(token: token, punch: target, date: date, expires_at: expires_at)
+) -> Result(Offer, String) {
+  case standing(path, target, date) {
+    Ok(existing) -> Ok(Standing(existing))
+    Error(Nil) -> {
+      let pending =
+        Pending(token: token, punch: target, date: date, expires_at: expires_at)
 
-  case write_file(path, to_text(pending)) {
-    "" -> Ok(pending)
-    detail -> Error(detail)
+      case write_file(path, to_text(pending)) {
+        "" -> Ok(Minted(pending))
+        detail -> Error(detail)
+      }
+    }
+  }
+}
+
+/// An offer for this same punch, today, still on the table. Expiry is not checked
+/// here: a token past its window is refused when it is claimed, and re-minting
+/// one would only hand out a second dead token.
+fn standing(
+  path: String,
+  target: punch.Punch,
+  date: clock.Date,
+) -> Result(Pending, Nil) {
+  case offered(path) {
+    Ok(existing) if existing.punch == target && existing.date == date ->
+      Ok(existing)
+    _ -> Error(Nil)
   }
 }
 

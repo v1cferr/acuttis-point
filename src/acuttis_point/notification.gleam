@@ -92,8 +92,11 @@ pub fn from_report(record: report.Report) -> Notification {
         // The one message that says a thing was done rather than considered, so
         // it names the punch, the minute, and the day it now adds up to. The
         // screenshot rides along as the attachment.
+        // High, not default. This is the message whose only job is to stop the
+        // same punch being made again at the totem in the building, and a
+        // confirmation nobody notices is how 08:08 happened on 2026-08-20.
         report.Confirmed(at:) ->
-          good(
+          loud(
             "Ponto batido: " <> bare(chosen),
             "bati "
               <> target(chosen)
@@ -111,14 +114,24 @@ pub fn from_report(record: report.Report) -> Notification {
         // because ignoring it has a cost, and the body says what that cost is
         // not: the deadline will punch anyway, so a missed tap is a punch made
         // late rather than a punch forgotten.
-        report.Offered(token:, expires_at:) ->
+        report.Offered(token:, expires_at:, repeated:) ->
           Notification(
-            title: "Bater " <> target(chosen) <> "?",
+            title: case repeated {
+              // A reminder says what is still true rather than repeating the
+              // question, so a screen full of them reads as one thing pending.
+              True -> "AINDA falta bater " <> target(chosen)
+              False -> "Bater " <> target(chosen) <> "?"
+            },
             body: "Toque para bater agora. Se não tocar, eu bato sozinho às "
               <> clock.time_to_string(expires_at)
               <> ". Hoje: "
               <> ptbr.registered(registered),
-            priority: "high",
+            // Urgent on a reminder: the first asking can be missed, and the
+            // whole reason for a second one is that it should not be.
+            priority: case repeated {
+              True -> "urgent"
+              False -> "high"
+            },
             tags: "alarm_clock",
             action: Ok(Action(label: "Bater agora", command: "punch " <> token)),
           )
@@ -253,6 +266,17 @@ fn why(chosen: decision.Decision) -> String {
     decision.Register(punch: kind, ..) ->
       "era hora de bater " <> ptbr.punch_with_article(kind)
   }
+}
+
+/// A good thing that still has to be seen.
+fn loud(title: String, body: String) -> Notification {
+  Notification(
+    title: title,
+    body: body,
+    priority: "high",
+    tags: "white_check_mark",
+    action: Error(Nil),
+  )
 }
 
 fn good(title: String, body: String) -> Notification {

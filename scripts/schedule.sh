@@ -24,7 +24,7 @@
 # are alternatives: see `pending`.
 #
 # Three timers, then, and a listener:
-#   acuttis-point            asks, exactly on time, no jitter
+#   acuttis-point            asks on time, then reminds until something happens
 #   acuttis-point-deadline    punches only what nobody confirmed
 #   acuttis-point-preflight   rehearses, fifteen minutes ahead
 #   acuttis-point-listen      hears the tap
@@ -154,6 +154,17 @@ deadline_lines=()
 # on the same second daily.
 readonly DEADLINE_JITTER_SECONDS=120
 
+# When to ask again, in minutes after the punch was due. Before the deadline, so
+# there is still something to decide when they arrive; the run behind them reads
+# the day first, so a punch already made at the totem silences them.
+readonly REMINDER_OFFSETS=(3 6)
+
+plus_minutes() {
+  local total=$((10#${1%%:*} * 60 + 10#${1##*:} + $2))
+  ((total >= 24 * 60)) && return 1
+  printf '%02d:%02d' $((total / 60)) $((total % 60))
+}
+
 plus_deadline() {
   local tolerance="${2:-10}"
   local total=$((10#${1%%:*} * 60 + 10#${1##*:} + tolerance - DEADLINE_JITTER_SECONDS / 60))
@@ -205,6 +216,19 @@ for punch in ${punches//,/ }; do
         deadline_lines+=("OnCalendar=$days *-*-* $late:00")
       fi
     fi
+
+    # The reminders ride on the same timer as the question, because they are the
+    # same run: it re-reads the day, holds out the token already offered, and
+    # says so more loudly. Nothing new to install.
+    for offset in "${REMINDER_OFFSETS[@]}"; do
+      if again="$(plus_minutes "$time" "$offset")"; then
+        if [[ -n "$on_date" ]]; then
+          calendar_lines+=("OnCalendar=$on_date $again:00")
+        else
+          calendar_lines+=("OnCalendar=$days *-*-* $again:00")
+        fi
+      fi
+    done
   fi
 done
 

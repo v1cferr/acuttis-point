@@ -196,12 +196,24 @@ fn offer(
       expires_at: expires_at,
     )
   {
-    Ok(_) ->
+    Ok(offer) -> {
+      // The token actually on the table, which on a reminder is the one an
+      // earlier run minted: the notification already on the phone has to keep
+      // working.
+      let standing = pending.offered_token(offer)
       decided(
         now,
         outcome,
-        report.Offered(token: token, expires_at: expires_at),
+        report.Offered(
+          token: standing.token,
+          expires_at: standing.expires_at,
+          repeated: case offer {
+            pending.Standing(_) -> True
+            pending.Minted(_) -> False
+          },
+        ),
       )
+    }
     // A token that could not be written is not an offer, and pretending
     // otherwise would send a button that authorises nothing.
     Error(detail) ->

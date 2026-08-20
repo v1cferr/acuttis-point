@@ -38,7 +38,7 @@ fn offer(file: String, expires: String) -> pending.Pending {
       date: day("2026-08-20"),
       expires_at: at(expires),
     )
-  offered
+  pending.offered_token(offered)
 }
 
 // The whole point. Two actors want the same punch; exactly one gets it.
@@ -206,4 +206,59 @@ pub fn tokens_do_not_repeat_test() {
   assert set.size(set.from_list(tokens)) == 200
   let assert Ok(first) = list.first(tokens)
   assert string.length(first) >= 10
+}
+
+// A reminder has to hand out the token that is already on the table. Minting a
+// new one would silently break the button on the notification already sitting on
+// the phone, which is the notification most likely to be the one tapped.
+pub fn asking_again_about_the_same_punch_keeps_the_same_token_test() {
+  let file = clean("again")
+  let first = offer(file, "12:45")
+
+  let assert Ok(second) =
+    pending.offer(
+      path: file,
+      token: "a-different-one",
+      punch: punch.LunchStart,
+      date: day("2026-08-20"),
+      expires_at: at("12:45"),
+    )
+
+  let assert pending.Standing(held) = second
+  assert held == first
+  assert held.token == "tok3n"
+
+  // And the old button still works.
+  assert pending.claim(
+      path: file,
+      offered: Ok("tok3n"),
+      now: moment("2026-08-20", "12:40"),
+    )
+    == Ok(first)
+}
+
+// A different punch, or another day, is not the same offer. Keeping it would let
+// a notification from this morning punch this afternoon.
+pub fn a_different_punch_replaces_the_offer_test() {
+  let file = clean("replaced")
+  let _ = offer(file, "12:45")
+
+  let assert Ok(pending.Minted(fresh)) =
+    pending.offer(
+      path: file,
+      token: "newtoken",
+      punch: punch.Exit,
+      date: day("2026-08-20"),
+      expires_at: at("17:40"),
+    )
+  assert fresh.punch == punch.Exit
+  assert fresh.token == "newtoken"
+
+  // The old token is gone with the offer it belonged to.
+  assert pending.claim(
+      path: file,
+      offered: Ok("tok3n"),
+      now: moment("2026-08-20", "17:35"),
+    )
+    == Error(pending.WrongToken)
 }

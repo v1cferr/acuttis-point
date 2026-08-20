@@ -305,7 +305,7 @@ pub fn asking_offers_a_token_and_registers_nothing_test() {
   ))
 
   let assert report.Decided(
-    outcome: report.Offered(token:, expires_at:),
+    outcome: report.Offered(token:, expires_at:, repeated: False),
     decision: chosen,
     ..,
   ) = finished.report

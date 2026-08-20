@@ -38,7 +38,10 @@ pub type RunOutcome {
   /// A punch was due, and permission to make it was offered rather than taken.
   /// The token is spendable until `expires_at`, by a tap on the phone or by the
   /// deadline run that covers a tap nobody made.
-  Offered(token: String, expires_at: clock.TimeOfDay)
+  ///
+  /// `repeated` means the offer was already standing — this run is a reminder,
+  /// not the first asking, and the same token is being held out again.
+  Offered(token: String, expires_at: clock.TimeOfDay, repeated: Bool)
   /// The decision was to skip; Acuttis was left alone.
   NothingToDo
   /// The decision was to abort; Acuttis was left alone.
@@ -105,7 +108,8 @@ pub fn result_to_string(outcome: RunOutcome) -> String {
   case outcome {
     Confirmed(_) -> "SUCCESS"
     Withheld -> "DRY_RUN"
-    Offered(..) -> "OFFERED"
+    Offered(repeated: False, ..) -> "OFFERED"
+    Offered(repeated: True, ..) -> "REMINDED"
     NothingToDo -> "SKIPPED"
     Refused -> "ABORTED"
     Failed(..) -> "FAILED"
@@ -189,9 +193,12 @@ fn detail_line(report: Report) -> Result(String, Nil) {
       case outcome {
         Confirmed(_) -> Error(Nil)
         Withheld -> Ok("dry run, the punch was decided but not registered")
-        Offered(expires_at:, ..) ->
+        Offered(expires_at:, repeated:, ..) ->
           Ok(
-            "waiting for confirmation until "
+            case repeated {
+              True -> "still waiting for confirmation until "
+              False -> "waiting for confirmation until "
+            }
             <> clock.time_to_string(expires_at),
           )
         Failed(stage:, detail:) ->

@@ -72,7 +72,9 @@ pub fn a_registered_punch_says_which_and_when_test() {
     == notification.Notification(
       title: "Ponto batido: entrada",
       body: "bati a entrada às 07:57. Hoje: entrada 07:57",
-      priority: "default",
+      // High: this is the message that stops the same punch being made again at
+      // the totem in the building.
+      priority: "high",
       tags: "white_check_mark",
       action: Error(Nil),
     )
@@ -217,7 +219,11 @@ pub fn an_offer_carries_a_button_and_says_what_happens_without_it_test() {
         expected_at: at("12:35"),
       ),
       registered: [state.Registered(punch: punch.Entry, at: at("07:59"))],
-      outcome: report.Offered(token: "abc123", expires_at: at("12:45")),
+      outcome: report.Offered(
+        token: "abc123",
+        expires_at: at("12:45"),
+        repeated: False,
+      ),
     ))
 
   assert offer.title == "Bater a saída para o almoço?"
@@ -238,9 +244,53 @@ pub fn an_offer_carries_a_button_and_says_what_happens_without_it_test() {
         expected_at: at("12:35"),
       ),
       registered: [],
-      outcome: report.Offered(token: "abc123", expires_at: at("12:45")),
+      outcome: report.Offered(
+        token: "abc123",
+        expires_at: at("12:45"),
+        repeated: False,
+      ),
     )
   assert notification.wanted(notification.OnAction, record)
   // And it is not a problem, so the problem-only trigger stays quiet.
   assert !notification.wanted(notification.OnProblem, record)
+}
+
+// A reminder is not a repeat of the question. It says what is still true, at a
+// priority that gets through, and holds out the same token — the notification
+// already on the phone is the one most likely to be tapped.
+pub fn a_reminder_escalates_and_keeps_the_same_button_test() {
+  let remind = fn(repeated) {
+    notification.from_report(report.Decided(
+      at: moment("12:41"),
+      state: state.Waiting(punch.LunchStart),
+      decision: decision.Register(
+        punch: punch.LunchStart,
+        expected_at: at("12:35"),
+      ),
+      registered: [state.Registered(punch: punch.Entry, at: at("07:59"))],
+      outcome: report.Offered(
+        token: "abc123",
+        expires_at: at("12:45"),
+        repeated: repeated,
+      ),
+    ))
+  }
+
+  let first = remind(False)
+  assert first.title == "Bater a saída para o almoço?"
+  assert first.priority == "high"
+
+  let again = remind(True)
+  assert again.title == "AINDA falta bater a saída para o almoço"
+  assert again.priority == "urgent"
+  // The same button, so an older notification still works.
+  assert again.action == first.action
+}
+
+// The confirmation is the only thing standing between a punch made here and the
+// same punch made again at the totem in the building. It is not a quiet message.
+pub fn a_confirmed_punch_is_loud_test() {
+  let done = notification.from_report(registered())
+  assert done.priority == "high"
+  assert done.title == "Ponto batido: entrada"
 }
