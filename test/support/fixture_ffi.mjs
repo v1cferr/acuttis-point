@@ -62,12 +62,8 @@ const PAGE = String.raw`<!doctype html>
         username.value === CREDENTIALS.username &&
         password.value === CREDENTIALS.password
       ) {
-        fetch("/api/session/new")
-          .then((r) => r.json())
-          .then(({ token }) => {
-            sessionStorage.setItem("signedIn", token);
-            renderDashboard();
-          });
+        sessionStorage.setItem("signedIn", "yes");
+        renderDashboard();
       } else {
         root.querySelector("#signin_error").textContent = "Credenciais inválidas";
       }
@@ -147,21 +143,8 @@ const PAGE = String.raw`<!doctype html>
       .join("");
   }
 
-  // What an expired token actually produced on Acuttis: a page that is not
-  // /signin, so the URL says signed in, and no punch control anywhere on it.
-  function renderExpired() {
-    history.replaceState({}, "", "/dashboard");
-    root.innerHTML = "<h1>Dashboard</h1><p>Sessao expirada</p>";
-  }
-
-  const token = sessionStorage.getItem("signedIn");
-  if (token) {
-    // Concatenated, not a template literal: a raw backtick in here would close
-    // the String.raw template this whole page lives in.
-    fetch("/api/session?token=" + encodeURIComponent(token))
-      .then((r) => r.json())
-      .then(({ valid }) => (valid ? renderDashboard() : renderExpired()))
-      .catch(() => renderExpired());
+  if (sessionStorage.getItem("signedIn")) {
+    renderDashboard();
   } else {
     renderSignIn();
   }
@@ -172,9 +155,6 @@ const PAGE = String.raw`<!doctype html>
 export function start(existingPunches, landsAt) {
   return new Promise((resolve) => {
     const punches = Array.from(existingPunches);
-    // A token is the generation it was minted in, so expiring every session is
-    // one increment and an old token stops matching.
-    let generation = 1;
     let broken = false;
 
     const server = createServer((request, response) => {
@@ -195,21 +175,6 @@ export function start(existingPunches, landsAt) {
         return;
       }
 
-      if (path === "/api/session/new") {
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ token: String(generation) }));
-        return;
-      }
-
-      if (path === "/api/session") {
-        const token = new URL(request.url, "http://localhost").searchParams.get(
-          "token",
-        );
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ valid: token === String(generation) }));
-        return;
-      }
-
       if (path === "/api/punch" && request.method === "POST") {
         punches.push(landsAt);
         response.writeHead(200, { "content-type": "application/json" });
@@ -226,19 +191,11 @@ export function start(existingPunches, landsAt) {
       state = {
         server,
         punches,
-        expire: () => (generation += 1),
         breakModal: () => (broken = true),
       };
       resolve(server.address().port);
     });
   });
-}
-
-// Invalidates every token issued so far, the way a session times out server
-// side. The application keeps the dead one and renders something that is not
-// the sign-in page, which is the case worth testing.
-export function expireSessions() {
-  if (state?.expire) state.expire();
 }
 
 // The trigger stays visible and stops opening the modal, which is how a session

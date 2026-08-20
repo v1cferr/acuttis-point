@@ -50,10 +50,6 @@ pub type Config {
     /// Rehearse the punch shortly before it is due: sign in, read the day, and
     /// check the punch button would take a click. Registers nothing.
     preflight: Bool,
-    /// Where to keep the browser's cookies between runs, so four runs a day do
-    /// not mean four sign-ins. The file is a credential: it stands in for the
-    /// password until it expires.
-    session_file: Result(String, Nil),
     /// Where to drop a screenshot when a run fails. The page at that moment is
     /// the only witness to an interface that changed.
     screenshot_dir: Result(String, Nil),
@@ -137,7 +133,6 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use discover <- result.try(boolean(env, "DISCOVER", False))
   use preflight <- result.try(boolean(env, "PREFLIGHT", False))
   use proxy_server <- result.try(proxy(env, "PROXY_SERVER"))
-  let session_file = optional(env, "SESSION_FILE")
   let screenshot_dir = optional(env, "SCREENSHOT_DIR")
 
   let timezone = lookup_or(env, "TIMEZONE", default_timezone)
@@ -163,7 +158,6 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     headless:,
     discover:,
     preflight:,
-    session_file:,
     screenshot_dir:,
     proxy_server:,
   ))

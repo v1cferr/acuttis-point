@@ -236,29 +236,20 @@ Credentials never live in this repository. Locally they come from a `.env`
 that git ignores; in production systemd reads them from a secret store
 (sops-nix, agenix, Bitwarden) as an `EnvironmentFile`.
 
-### The saved session
+### Every run signs in
 
-`SESSION_FILE` keeps the browser's session between runs, which matters because a
-day costs eight of them: four punches and four rehearsals. The file is a
-credential — it stands in for the password until it expires, and Acuttis also
-keeps a name, an e-mail and a CPF in there — so it is written `0600` and belongs
-in a private state directory, never in the Nix store.
+Nothing is kept between runs — no cookie jar, no `storageState`, no session file.
 
-Restoring it takes an init script rather than Playwright's `storageState`, because
-Acuttis keeps its token in `sessionStorage`, which `storageState` does not
-capture.
+That is a decision, not an omission. Acuttis keeps its token in `sessionStorage`,
+which expires quickly and does not send an expired visitor back to `/signin`, so
+a stale session looks exactly like a live one. On 2026-08-19 a session carried
+across an Acuttis frontend change failed three punches and three rehearsals in a
+row, all reporting a missing punch list, because the page it produced had a
+visible punch trigger that opened nothing. Visible was not the same as working,
+and nothing in a saved file can tell you which you have.
 
-A restored session is never taken on trust. Acuttis sends an unauthenticated
-visitor to `/signin`, so landing anywhere else looks like proof of being signed
-in — and it is not: an expired token once produced a page that was neither
-`/signin` nor had a punch control on it, and reading that as a live session made
-the run fail later with a message about a missing punch list. So the URL is a
-hint and the punch control is the answer. A session that cannot reach it within
-five seconds is discarded and the run signs in with the password.
-
-Discarding builds a new context rather than clearing the old one. The init script
-that replays the saved `sessionStorage` is registered on the context, so clearing
-cookies and reloading would put the dead token straight back.
+A sign-in costs a few seconds. Not knowing whether the punch landed costs a
+conversation with Gestão de Pessoas.
 
 ### Finding the punch selectors
 

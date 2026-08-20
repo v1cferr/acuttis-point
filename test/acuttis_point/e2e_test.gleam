@@ -29,7 +29,6 @@ import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/list
 import gleam/string
-import support/files
 import support/fixture
 
 const workday = "2026-08-12"
@@ -281,174 +280,39 @@ pub fn a_punch_is_confirmed_even_though_the_receipt_is_full_test() {
   promise.resolve(Nil)
 }
 
-// Four runs a day should not mean four sign-ins. The fixture only ever renders
-// the form when it has no session, so a second run that never sees the username
-// field is the proof: it went straight to the dashboard.
-pub fn a_saved_session_skips_the_sign_in_form_test() {
-  let session = "build/e2e-session.json"
-  files.remove(session)
-
+// 2026-08-19: Acuttis added a second anchor sharing the punch trigger's class,
+// the click went to the wrong one, and the modal never opened. What matters is
+// which of two stories the run tells about that. "The interface changed" sends
+// someone to look at it. "Today has no punches" would be a lie that reads as
+// truth, and on a day with three punches already registered it would invite the
+// automation to register a fourth.
+pub fn a_trigger_that_opens_nothing_is_an_interface_problem_test() {
   use base_url <- promise.await(fixture.start(
     registered: list.append(yesterday, [today_at("07:58")]),
     lands_at: today_at("12:04"),
   ))
 
-  let settings_env =
-    env(base_url, [#("SESSION_FILE", session), #("DRY_RUN", "true")])
+  let settings_env = env(base_url, [])
   let assert Ok(settings) = config.from_env(settings_env)
   let assert Ok(secrets) = credentials.from_env(settings_env)
-  let page_selectors = selectors.from_env(settings_env)
 
-  // The first run goes through the form and saves the session.
-  use first <- promise.await(runner.run(
-    settings: settings,
-    secrets: secrets,
-    now: moment("12:04"),
-    port: playwright.port(settings, page_selectors),
-  ))
-  let #(_, _, first_outcome) = decided(first.report)
-  assert first_outcome == report.Withheld
-
-  // The second run has a session, so a wrong password makes no difference: if it
-  // reached the form at all, the run would break at Authenticating.
-  let assert Ok(wrong) =
-    credentials.from_env(
-      dict.from_list([
-        #("ACUTTIS_USERNAME", fixture.username),
-        #("ACUTTIS_PASSWORD", "esta-senha-nao-serve"),
-      ]),
-    )
-  use second <- promise.await(runner.run(
-    settings: settings,
-    secrets: wrong,
-    now: moment("12:04"),
-    port: playwright.port(settings, page_selectors),
-  ))
-  use _ <- promise.await(fixture.stop())
-
-  let #(day, _, second_outcome) = decided(second.report)
-  assert day == state.Waiting(punch.LunchStart)
-  assert second_outcome == report.Withheld
-  promise.resolve(Nil)
-}
-
-// The failure that switched session reuse off in the first place. An expired
-// token left Acuttis rendering a page that was not /signin, the adapter read the
-// URL and concluded it was signed in, and every step after that failed for
-// reasons that had nothing to do with the cause.
-//
-// So a restored session is now checked against the control the run exists to
-// click, and a session that cannot reach it is thrown away.
-pub fn a_stale_session_is_discarded_and_the_run_signs_in_again_test() {
-  let session = "build/e2e-stale-session.json"
-  files.remove(session)
-
-  use base_url <- promise.await(fixture.start(
-    registered: list.append(yesterday, [today_at("07:58")]),
-    lands_at: today_at("12:04"),
-  ))
-
-  let settings_env = env(base_url, [#("SESSION_FILE", session)])
-  let assert Ok(settings) = config.from_env(settings_env)
-  let assert Ok(secrets) = credentials.from_env(settings_env)
-  let page_selectors = selectors.from_env(settings_env)
-
-  let run = fn(with: credentials.Credentials) {
-    runner.run(
-      settings: settings,
-      secrets: with,
-      now: moment("12:04"),
-      port: playwright.port(settings, page_selectors),
-    )
-  }
-
-  // A dry run first, only to leave a session behind.
-  let assert Ok(dry) =
-    config.from_env(dict.insert(settings_env, "DRY_RUN", "true"))
-  use first <- promise.await(runner.run(
-    settings: dry,
-    secrets: secrets,
-    now: moment("12:04"),
-    port: playwright.port(dry, page_selectors),
-  ))
-  let #(_, _, first_outcome) = decided(first.report)
-  assert first_outcome == report.Withheld
-
-  fixture.expire_sessions()
-
-  // With a wrong password, a run that correctly discards the dead session ends
-  // up at the form and says so. Before this fix it broke somewhere later, with a
-  // message about a missing element.
-  let assert Ok(wrong) =
-    credentials.from_env(
-      dict.from_list([
-        #("ACUTTIS_USERNAME", fixture.username),
-        #("ACUTTIS_PASSWORD", "this-password-is-no-good"),
-      ]),
-    )
-  use rejected <- promise.await(run(wrong))
-  let assert report.Broke(stage: stage, ..) = rejected.report
-  assert stage == report.Authenticating
-
-  // And with the right password it signs in again and the punch still lands,
-  // which is the part that matters: a dead session costs one sign-in, not a day.
-  use recovered <- promise.await(run(secrets))
-  use _ <- promise.await(fixture.stop())
-
-  let #(_, chosen, outcome) = decided(recovered.report)
-  assert chosen
-    == decision.Register(punch: punch.LunchStart, expected_at: at("12:00"))
-  assert outcome == report.Confirmed(at: at("12:04"))
-  assert fixture.punches()
-    == list.append(yesterday, [today_at("07:58"), today_at("12:04")])
-  promise.resolve(Nil)
-}
-
-// 2026-08-19: Acuttis changed its navbar, a saved session from the day before
-// stopped being able to open the punch modal, and nothing ever threw that file
-// away. Three punches and three rehearsals failed the same way, all day, and
-// none of them would have recovered on their own.
-//
-// A session that leads to a broken interface is now discarded, so the next run
-// signs in clean. It does not rescue the run that found the problem — that one
-// still fails, and should — but it stops one bad file from owning the week.
-pub fn a_session_that_leads_to_a_broken_interface_is_thrown_away_test() {
-  let session = "build/e2e-poisoned-session.json"
-  files.remove(session)
-
-  use base_url <- promise.await(fixture.start(
-    registered: list.append(yesterday, [today_at("07:58")]),
-    lands_at: today_at("12:04"),
-  ))
-
-  let settings_env =
-    env(base_url, [#("SESSION_FILE", session), #("DRY_RUN", "true")])
-  let assert Ok(settings) = config.from_env(settings_env)
-  let assert Ok(secrets) = credentials.from_env(settings_env)
-  let page_selectors = selectors.from_env(settings_env)
-
-  let run = fn() {
-    runner.run(
-      settings: settings,
-      secrets: secrets,
-      now: moment("12:04"),
-      port: playwright.port(settings, page_selectors),
-    )
-  }
-
-  use _ <- promise.await(run())
-  assert files.exists(session)
-
-  // The interface changes under it: the trigger is still visible, and clicking
-  // it opens nothing. Exactly what a visible-trigger check cannot tell apart.
+  // The trigger stays visible and stops opening anything.
   fixture.break_punch_modal()
 
-  use blocked <- promise.await(run())
+  use blocked <- promise.await(runner.run(
+    settings: settings,
+    secrets: secrets,
+    now: moment("12:04"),
+    port: playwright.port(settings, selectors.from_env(settings_env)),
+  ))
   use _ <- promise.await(fixture.stop())
 
-  let assert report.Broke(stage: stage, ..) = blocked.report
+  let assert report.Broke(stage: stage, detail: detail, ..) = blocked.report
   assert stage == report.ReadingPunches
-  assert !files.exists(session)
+  assert string.contains(detail, "#mark_modal")
+
+  // And nothing was registered while the interface was misbehaving.
+  assert fixture.punches() == list.append(yesterday, [today_at("07:58")])
   promise.resolve(Nil)
 }
 

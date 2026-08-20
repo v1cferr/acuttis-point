@@ -1,12 +1,5 @@
 import { Result$Ok, Result$Error } from "../gleam.mjs";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { chromium } from "playwright-core";
 
@@ -19,11 +12,8 @@ const DETAIL_LIMIT = 300;
 // and the whole step timeout would be spent waiting to say so.
 const ROW_WAIT_MS = 5000;
 
-// How long a restored session gets to prove itself. Short on purpose: a dead one
 // is thrown away and the run signs in with the password, so waiting the full
 // step timeout here would only delay the thing that works.
-const SESSION_PROBE_MS = 5000;
-
 const ok = (value) => Result$Ok(value);
 
 const fail = (kind, detail) =>
@@ -34,9 +24,15 @@ const isTimeout = (error) =>
 
 const onSignInPage = (page) => new URL(page.url()).pathname.startsWith("/signin");
 
-// `sessionPath` empty means do not persist anything: every run signs in.
 // `proxyServer` empty means go out from this machine.
-export async function open(headless, timeoutMs, sessionPath, proxyServer) {
+//
+// Every run signs in. Nothing is kept between runs, and that is deliberate: the
+// saved session used to live here and it earned its removal. Acuttis' token
+// expires quickly, an expired one does not send the browser back to /signin, and
+// on 2026-08-19 a session carried across a frontend change failed three punches
+// and three rehearsals in a row. A sign-in costs seconds; not knowing whether
+// the punch landed costs a conversation with Gestao de Pessoas.
+export async function open(headless, timeoutMs, proxyServer) {
   try {
     // The proxy goes on the browser rather than the context, because Chromium
     // resolves DNS through a SOCKS proxy only when it is launched with one:
@@ -46,145 +42,15 @@ export async function open(headless, timeoutMs, sessionPath, proxyServer) {
       proxyServer ? { headless, proxy: { server: proxyServer } } : { headless },
     );
 
-    const options = { locale: "pt-BR", timezoneId: "America/Sao_Paulo" };
-
-    // A saved session is a convenience, never a requirement: a file that cannot
-    // be read is thrown away and the run signs in normally.
-    let saved = null;
-    if (sessionPath && existsSync(sessionPath)) {
-      try {
-        saved = JSON.parse(readFileSync(sessionPath, "utf8"));
-      } catch {
-        rmSync(sessionPath, { force: true });
-      }
-    }
-
-    let context;
-    try {
-      context = await browser.newContext(
-        saved?.storage ? { ...options, storageState: saved.storage } : options,
-      );
-    } catch {
-      rmSync(sessionPath, { force: true });
-      saved = null;
-      context = await browser.newContext(options);
-    }
-
-    // Acuttis keeps its token in sessionStorage, which `storageState` does not
-    // capture — cookies and localStorage only. Restoring it takes an init
-    // script, so the values are in place before the application's own scripts
-    // look for them.
-    if (saved?.session) {
-      await context.addInitScript((dump) => {
-        try {
-          for (const [key, value] of Object.entries(JSON.parse(dump))) {
-            window.sessionStorage.setItem(key, value);
-          }
-        } catch {
-          // A dump that will not parse just means signing in again.
-        }
-      }, saved.session);
-    }
+    const context = await browser.newContext({
+      locale: "pt-BR",
+      timezoneId: "America/Sao_Paulo",
+    });
     context.setDefaultTimeout(timeoutMs);
     const page = await context.newPage();
-    // options and timeoutMs travel with the session so a dead one can be
-    // replaced mid-run by a context built the same way. `restored` records that
-    // this run started from a saved session, which is what makes a later failure
-    // attributable to it.
-    return ok({
-      browser,
-      context,
-      page,
-      sessionPath,
-      options,
-      timeoutMs,
-      restored: saved !== null,
-    });
+    return ok({ browser, context, page });
   } catch (error) {
     return fail("launch", error.message);
-  }
-}
-
-// A saved session that leads to a broken interface is thrown away, so the next
-// run signs in clean instead of meeting the same wall.
-//
-// This is what turned one bad session file into a whole day of failures on
-// 2026-08-19: three punches and three rehearsals, every one of them failing the
-// same way, because nothing ever discarded the file. Reaching the punch control
-// was already checked at sign-in and the check passed — the trigger was visible
-// on that page. Visible was not the same as working.
-//
-// Only for a restored session: a fresh sign-in that cannot open the interface is
-// telling the truth about the interface, and deleting a file would hide it.
-function discardIfRestored(session, outcome) {
-  const interfaceFailure = outcome?.[0]?.[0] === "interface";
-  if (session.restored && session.sessionPath && interfaceFailure) {
-    rmSync(session.sessionPath, { force: true });
-  }
-  return outcome;
-}
-
-// Whether a restored session can still reach the control the run exists to
-// click. Nothing else is worth asking: a session that cannot punch is not a
-// session, however valid its cookie looks.
-async function sessionStillWorks(session, triggerSelector) {
-  // Nothing to probe for leaves the URL as the only evidence there is.
-  if (!triggerSelector) return true;
-
-  await session.page.waitForLoadState("networkidle").catch(() => {});
-
-  return await session.page
-    .waitForSelector(triggerSelector, {
-      state: "visible",
-      timeout: SESSION_PROBE_MS,
-    })
-    .then(() => true)
-    .catch(() => false);
-}
-
-// Throw the session away and start over on a clean context.
-//
-// A new context rather than a cleared one, and that is the whole point: the init
-// script that replays the saved sessionStorage is registered on the context, so
-// clearing cookies and reloading would put the dead token straight back.
-async function startFresh(session, baseUrl) {
-  try {
-    if (session.sessionPath) rmSync(session.sessionPath, { force: true });
-    await session.context.close();
-
-    session.context = await session.browser.newContext(session.options);
-    session.context.setDefaultTimeout(session.timeoutMs);
-    session.page = await session.context.newPage();
-    await session.page.goto(`${baseUrl}/signin`, {
-      waitUntil: "domcontentloaded",
-    });
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, detail: `discarding a dead session: ${error.message}` };
-  }
-}
-
-// What is saved stands in for the password until it expires, and for Acuttis it
-// also carries name, e-mail and CPF — the application keeps all of it in
-// sessionStorage. Written 0600, and never anywhere the Nix store can see.
-//
-// Best effort throughout: failing to persist a session costs one extra sign-in,
-// which is not worth failing a run over.
-async function saveSession(session) {
-  const { context, page, sessionPath } = session;
-  if (!sessionPath) return;
-
-  try {
-    const storage = await context.storageState();
-    const dump = await page.evaluate(() => JSON.stringify(sessionStorage));
-
-    mkdirSync(dirname(sessionPath), { recursive: true });
-    writeFileSync(sessionPath, JSON.stringify({ storage, session: dump }), {
-      mode: 0o600,
-    });
-    chmodSync(sessionPath, 0o600);
-  } catch {
-    // Nothing to do: the next run signs in.
   }
 }
 
@@ -208,9 +74,8 @@ export async function signIn(
   submitSelector,
   username,
   password,
-  triggerSelector,
 ) {
-  let { page } = session;
+  const { page } = session;
 
   try {
     await page.goto(`${baseUrl}/dashboard`, { waitUntil: "domcontentloaded" });
@@ -220,33 +85,9 @@ export async function signIn(
       : fail("unreachable", error.message);
   }
 
-  // Acuttis sends an unauthenticated visitor to /signin, so landing anywhere
-  // else suggests a session is already in place. Suggests, not proves: an
-  // expired token got the application to render a page that was not /signin and
-  // had no punch control on it either, and taking that as signed in is why
-  // session reuse was switched off. So the URL is a hint and the punch control
-  // is the answer.
-  if (!onSignInPage(page)) {
-    if (await sessionStillWorks(session, triggerSelector)) {
-      // Refresh it anyway: the cookie's expiry moves as it is used.
-      await saveSession(session);
-      return ok(undefined);
-    }
-
-    const restarted = await startFresh(session, baseUrl);
-    if (!restarted.ok) return fail("launch", restarted.detail);
-    page = session.page;
-
-    // Signed out and back at the form, or the fresh context is not honest about
-    // what it carries.
-    if (!onSignInPage(page)) {
-      return fail(
-        "auth",
-        "the session was discarded but the application still will not show the sign-in form",
-      );
-    }
-  }
-
+  // Landing anywhere but /signin would mean a session already exists, and there
+  // is none to exist: nothing is persisted between runs. If Acuttis ever stops
+  // showing the form, the wait below says so rather than guessing.
   try {
     await page.waitForSelector(usernameSelector, { state: "visible" });
     await page.fill(usernameSelector, username);
@@ -280,8 +121,6 @@ export async function signIn(
   // empty day that is only empty yet.
   await page.waitForLoadState("networkidle").catch(() => {});
 
-  await saveSession(session);
-
   return ok(undefined);
 }
 
@@ -301,7 +140,7 @@ export async function punchTexts(
     receiptSelector,
     listSelector,
   );
-  if (blocked) return discardIfRestored(session, blocked);
+  if (blocked) return blocked;
 
   try {
     // Every row of the receipt, across all the days it lists. Which of them
@@ -447,7 +286,7 @@ export async function verifyPunchable(
     receiptSelector,
     listSelector,
   );
-  if (blocked) return discardIfRestored(session, blocked);
+  if (blocked) return blocked;
 
   // Same order as registering: Voltar closes the modal, so it has to be gone
   // before the trigger reopens it on the punch view.

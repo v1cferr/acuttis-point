@@ -30,13 +30,6 @@ pub fn stop() -> Promise(Nil) {
   ffi_stop()
 }
 
-/// Invalidate every session handed out so far, the way one times out server
-/// side. The browser keeps the dead token and the application renders a page
-/// that is not the sign-in page — the case that made session reuse unsafe.
-pub fn expire_sessions() -> Nil {
-  ffi_expire_sessions()
-}
-
 /// A url pointing at a port nothing is listening on.
 pub fn unreachable() -> String {
   "http://127.0.0.1:9"
@@ -50,9 +43,6 @@ pub fn break_punch_modal() -> Nil {
 
 @external(javascript, "./fixture_ffi.mjs", "breakPunchModal")
 fn ffi_break_punch_modal() -> Nil
-
-@external(javascript, "./fixture_ffi.mjs", "expireSessions")
-fn ffi_expire_sessions() -> Nil
 
 @external(javascript, "./fixture_ffi.mjs", "start")
 fn ffi_start(registered: Array(String), lands_at: String) -> Promise(Int)

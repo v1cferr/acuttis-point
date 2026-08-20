@@ -37,8 +37,6 @@ pub fn port(
       ffi_open(
         settings.headless,
         settings.timeout_seconds * 1000,
-        // Empty means do not persist: every run signs in from scratch.
-        result.unwrap(settings.session_file, ""),
         // Empty means go out from this machine's own address.
         result.unwrap(settings.proxy_server, ""),
       )
@@ -53,9 +51,6 @@ pub fn port(
         page_selectors.submit_button,
         credentials.username(secrets),
         credentials.reveal_password(secrets),
-        // What a restored session is checked against: reaching this control is
-        // the difference between a live session and a URL that looks like one.
-        page_selectors.punch_trigger,
       )
       |> promise.map(translate)
     },
@@ -157,7 +152,6 @@ fn translate(
 fn ffi_open(
   headless: Bool,
   timeout_ms: Int,
-  session_path: String,
   proxy_server: String,
 ) -> Promise(Result(Session, Failure))
 
@@ -174,7 +168,6 @@ fn ffi_sign_in(
   submit_selector: String,
   username: String,
   password: String,
-  trigger_selector: String,
 ) -> Promise(Result(Nil, Failure))
 
 @external(javascript, "./playwright_ffi.mjs", "punchTexts")
