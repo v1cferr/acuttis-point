@@ -73,13 +73,19 @@ export function appendToFile(path, text) {
 // had guessed at rather than measured.
 const utf8Header = (value) => Buffer.from(value, "utf8").toString("latin1");
 
-// Two shapes, because ntfy takes an attachment as the request *body*:
-//   no file  → JSON body
-//   a file   → the bytes as body, and the message moves into headers
+// One shape: metadata in headers, the body is the payload.
 //
-// `action` is a label and a command, published to `commandUrl` when the button
-// is tapped. That is the whole remote control: the phone posts to a topic this
-// machine is listening on, so nothing here has to accept an inbound connection.
+// It used to be two, and the other one was silently wrong. A JSON body is only
+// read as JSON by ntfy when it is posted to the root endpoint with the topic
+// inside it; posted to https://ntfy.sh/<topic> the body is the message text. So
+// every notification without an attachment arrived with no title, no priority
+// and the raw JSON as its text — including the punch confirmations, which are
+// the one message whose job is to stop a second punch being made by hand. On
+// 2026-08-20 the 07:59 confirmation went out looking like that, was
+// indistinguishable from noise, and a duplicate landed at 08:08.
+//
+// Headers for everything, then, and the body carries the message or the file.
+// Verified against ntfy.sh both ways before changing it.
 export async function postNotification(
   url,
   title,
@@ -94,56 +100,37 @@ export async function postNotification(
   const levels = { min: 1, low: 2, default: 3, high: 4, urgent: 5 };
   const level = levels[priority] ?? 3;
 
-  // clear=true dismisses the notification once the button is tapped, so a
-  // notification still sitting there means it has not been acted on.
-  const actions =
-    actionLabel && actionCommand && commandUrl
-      ? [
-          {
-            action: "http",
-            label: actionLabel,
-            url: commandUrl,
-            method: "POST",
-            body: actionCommand,
-            clear: true,
-          },
-        ]
-      : [];
+  const headers = {
+    Title: utf8Header(title),
+    Priority: String(level),
+    Tags: tags,
+  };
+
+  // clear=true dismisses the notification once the button is tapped, so one
+  // still sitting there means it has not been acted on.
+  if (actionLabel && actionCommand && commandUrl) {
+    headers.Actions = utf8Header(
+      `http, ${actionLabel}, ${commandUrl}, method=POST, body=${actionCommand}, clear=true`,
+    );
+  }
+
+  let payload;
+  if (attachment) {
+    // The bytes are the body, so the text has to travel in a header.
+    headers.Message = utf8Header(body);
+    headers.Filename = basename(attachment);
+    payload = readFileSync(attachment);
+  } else {
+    // Raw UTF-8, which is what ntfy reads a plain body as. Newlines survive,
+    // which is why a list of dates can be a list of lines.
+    payload = Buffer.from(body, "utf8");
+  }
 
   try {
-    const request = attachment
-      ? {
-          method: "PUT",
-          headers: {
-            Title: utf8Header(title),
-            Message: utf8Header(body),
-            Priority: String(level),
-            Tags: tags,
-            Filename: basename(attachment),
-            ...(actions.length
-              ? {
-                  Actions: utf8Header(
-                    `http, ${actionLabel}, ${commandUrl}, method=POST, body=${actionCommand}, clear=true`,
-                  ),
-                }
-              : {}),
-          },
-          body: readFileSync(attachment),
-        }
-      : {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            message: body,
-            priority: level,
-            tags: tags ? tags.split(",") : [],
-            ...(actions.length ? { actions } : {}),
-          }),
-        };
-
     const response = await fetch(url, {
-      ...request,
+      method: attachment ? "PUT" : "POST",
+      headers,
+      body: payload,
       // A run must not hang on a notification service being slow.
       signal: AbortSignal.timeout(20_000),
     });
