@@ -18,15 +18,23 @@
 # That is the point: a run that failed at midday notifies once, and a
 # notification missed is a punch forgotten. The sweep asks again at the end.
 #
-# Each punch fires between its configured time T and T+9 minutes, never before.
-# That is what keeps the drift one-directional: set ENTRY_TIME and LUNCH_END
-# nine minutes earlier than the times you actually want, and the punch lands at
-# or before them, while LUNCH_START and EXIT land at or after theirs. Worked
-# time can then only come out at or above the nominal day, never under it.
+# Nothing here punches. At each configured time it ASKS — a notification with a
+# button — and the punch happens when the button is tapped, or at the deadline
+# near the end of the window if nobody taps. Both compete for one token, so they
+# are alternatives: see `pending`.
+#
+# Three timers, then, and a listener:
+#   acuttis-point            asks, exactly on time, no jitter
+#   acuttis-point-deadline    punches only what nobody confirmed
+#   acuttis-point-preflight   rehearses, fifteen minutes ahead
+#   acuttis-point-listen      hears the tap
+#
+# The punch time varies by itself now, because it is whenever the button is
+# tapped. What used to provide that variation — nine minutes of jitter on the
+# punch itself — is gone from the question and left only on the deadline.
 
 set -euo pipefail
 
-readonly JITTER_SECONDS=540 # 9 minutes
 # How far ahead of a punch the rehearsal runs. Enough to act on bad news — the
 # punch itself can still be made by hand inside its window.
 readonly PREFLIGHT_LEAD_MINUTES=15
@@ -60,13 +68,24 @@ show_status() {
   echo "rehearsals:"
   systemctl --user cat "$UNIT_NAME-preflight.timer" --no-pager 2>/dev/null |
     grep -E "OnCalendar|RandomizedDelaySec|Persistent" || echo "  not installed"
+  echo "deadlines:"
+  systemctl --user cat "$UNIT_NAME-deadline.timer" --no-pager 2>/dev/null |
+    grep -E "OnCalendar|RandomizedDelaySec|Persistent" || echo "  not installed"
+  echo "listener:"
+  systemctl --user is-active "$UNIT_NAME-listen.service" 2>/dev/null ||
+    echo "  not installed"
 }
 
 remove() {
   systemctl --user disable --now "$UNIT_NAME.timer" 2>/dev/null || true
   systemctl --user disable --now "$UNIT_NAME-preflight.timer" 2>/dev/null || true
+  systemctl --user disable --now "$UNIT_NAME-deadline.timer" 2>/dev/null || true
+  systemctl --user disable --now "$UNIT_NAME-listen.service" 2>/dev/null || true
   rm -f "$UNIT_DIR/$UNIT_NAME-preflight.timer" \
-    "$UNIT_DIR/$UNIT_NAME-preflight.service"
+    "$UNIT_DIR/$UNIT_NAME-preflight.service" \
+    "$UNIT_DIR/$UNIT_NAME-deadline.timer" \
+    "$UNIT_DIR/$UNIT_NAME-deadline.service" \
+    "$UNIT_DIR/$UNIT_NAME-listen.service"
   rm -f "$UNIT_DIR/$UNIT_NAME.timer" "$UNIT_DIR/$UNIT_NAME.service" \
     "$UNIT_DIR/$UNIT_NAME-failed.service"
   systemctl --user daemon-reload
@@ -122,6 +141,19 @@ fi
 
 calendar_lines=()
 preflight_lines=()
+deadline_lines=()
+
+# How much of the window the deadline leaves for jitter. Two minutes, so the
+# fallback punch varies within the last stretch of the window instead of landing
+# on the same second daily.
+readonly DEADLINE_JITTER_SECONDS=120
+
+plus_deadline() {
+  local tolerance="${2:-10}"
+  local total=$((10#${1%%:*} * 60 + 10#${1##*:} + tolerance - DEADLINE_JITTER_SECONDS / 60))
+  ((total >= 24 * 60)) && return 1
+  printf '%02d:%02d' $((total / 60)) $((total % 60))
+}
 
 minus_lead() {
   local total=$((10#${1%%:*} * 60 + 10#${1##*:} - PREFLIGHT_LEAD_MINUTES))
@@ -150,12 +182,22 @@ for punch in ${punches//,/ }; do
     calendar_lines+=("OnCalendar=$days *-*-* $time:00")
   fi
 
-  # The sweep only reports, so rehearsing it would be a rehearsal of a report.
-  if [[ "$punch" != "sweep" ]] && lead="$(minus_lead "$time")"; then
-    if [[ -n "$on_date" ]]; then
-      preflight_lines+=("OnCalendar=$on_date $lead:00")
-    else
-      preflight_lines+=("OnCalendar=$days *-*-* $lead:00")
+  # The sweep only reports, so rehearsing it would be a rehearsal of a report,
+  # and there is nothing pending for it to fall back on either.
+  if [[ "$punch" != "sweep" ]]; then
+    if lead="$(minus_lead "$time")"; then
+      if [[ -n "$on_date" ]]; then
+        preflight_lines+=("OnCalendar=$on_date $lead:00")
+      else
+        preflight_lines+=("OnCalendar=$days *-*-* $lead:00")
+      fi
+    fi
+    if late="$(plus_deadline "$time" "$(env_value TIME_TOLERANCE_MINUTES)")"; then
+      if [[ -n "$on_date" ]]; then
+        deadline_lines+=("OnCalendar=$on_date $late:00")
+      else
+        deadline_lines+=("OnCalendar=$days *-*-* $late:00")
+      fi
     fi
   fi
 done
@@ -168,7 +210,9 @@ if [[ ",$punches," == *",sweep,"* ]]; then
   sweep_at="$(to_minutes "$(env_value SWEEP_TIME)")"
   exit_at="$(to_minutes "$(env_value EXIT_TIME)")"
   tolerance="$(env_value TIME_TOLERANCE_MINUTES)"
-  last_window=$((exit_at + ${tolerance:-10} + JITTER_SECONDS / 60))
+  # The last moment anything can be registered: the deadline run fires inside
+  # the exit window and the program refuses anything past it.
+  last_window=$((exit_at + ${tolerance:-10}))
   ((sweep_at > last_window)) ||
     die "SWEEP_TIME is not past the last window (exit + tolerance + jitter); it could register the punch it is meant to report as missing"
 fi
@@ -225,7 +269,7 @@ UNIT
 
 cat >"$UNIT_DIR/$UNIT_NAME.service" <<UNIT
 [Unit]
-Description=Register the timekeeping punch due now on Acuttis
+Description=Ask whether to register the punch due now on Acuttis
 After=network-online.target
 Wants=network-online.target
 OnFailure=$UNIT_NAME-failed.service
@@ -235,6 +279,7 @@ Type=oneshot
 Environment=ENV_FILE=$ENV_FILE
 Environment=LOG_FILE=$REPO/logs/runs.log
 Environment=ACUTTIS_BINARY=$binary
+Environment=ASK=true
 WorkingDirectory=$REPO
 ExecStart=$runner
 UNIT
@@ -247,9 +292,10 @@ UNIT
   printf '%s\n' "${calendar_lines[@]}"
   echo "Unit=$UNIT_NAME.service"
   echo "AccuracySec=1s"
-  # Every punch lands between its configured time and nine minutes later, and
-  # never before it. Direction is the whole point: see the note at the top.
-  echo "RandomizedDelaySec=$JITTER_SECONDS"
+  # No jitter on the question. Delaying it would spend the window before anyone
+  # had been asked, and the punch time now varies by itself: it is whenever the
+  # button gets tapped. What still lands at a jittered time is the deadline
+  # below, for the days nobody taps.
   # A machine asleep at the minute runs on waking instead of losing the punch.
   # Safe only because a run that wakes past its tolerance refuses to register.
   echo "Persistent=true"
@@ -264,6 +310,81 @@ systemctl --user enable "$UNIT_NAME.timer" >/dev/null
 # `elapsed`, and neither daemon-reload nor `enable --now` recomputes it there. It
 # would silently keep the old schedule and never fire again.
 systemctl --user restart "$UNIT_NAME.timer"
+
+# The safety net. It claims whatever token is still unspent, which means it
+# punches only on the days nobody tapped — and cannot punch on the days somebody
+# did, because the tap took the token.
+#
+# Late in the window on purpose: every minute it waits is a minute the tap still
+# has. What is left of the window is filled with jitter, so the fallback punch is
+# not stamped at the same second every day.
+if ((${#deadline_lines[@]} > 0)); then
+  cat >"$UNIT_DIR/$UNIT_NAME-deadline.service" <<UNIT
+[Unit]
+Description=Punch what nobody confirmed, before the window closes
+After=network-online.target
+Wants=network-online.target
+OnFailure=$UNIT_NAME-failed.service
+
+[Service]
+Type=oneshot
+Environment=ENV_FILE=$ENV_FILE
+Environment=LOG_FILE=$REPO/logs/runs.log
+Environment=ACUTTIS_BINARY=$binary
+Environment=CLAIM_DEADLINE=true
+WorkingDirectory=$REPO
+ExecStart=$runner
+UNIT
+
+  {
+    echo "[Unit]"
+    echo "Description=Deadlines for today's unanswered Acuttis punches"
+    echo
+    echo "[Timer]"
+    printf '%s\n' "${deadline_lines[@]}"
+    echo "Unit=$UNIT_NAME-deadline.service"
+    echo "AccuracySec=1s"
+    echo "RandomizedDelaySec=$DEADLINE_JITTER_SECONDS"
+    # Not Persistent: a deadline that fires on waking, after its window shut,
+    # would claim a token the program then refuses as expired. Correct, but a
+    # pointless browser launch and a confusing line in the journal.
+    echo "Persistent=false"
+    echo
+    echo "[Install]"
+    echo "WantedBy=timers.target"
+  } >"$UNIT_DIR/$UNIT_NAME-deadline.timer"
+
+  systemctl --user daemon-reload
+  systemctl --user enable "$UNIT_NAME-deadline.timer" >/dev/null
+  systemctl --user restart "$UNIT_NAME-deadline.timer"
+fi
+
+# The listener: the other half of the button. Long running, restarted forever,
+# because a tap that arrives while it is down is a tap nobody hears.
+if [[ -n "$(env_value COMMAND_URL)" ]]; then
+  cat >"$UNIT_DIR/$UNIT_NAME-listen.service" <<UNIT
+[Unit]
+Description=Listen for a tap authorising an Acuttis punch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=ENV_FILE=$ENV_FILE
+Environment=LOG_FILE=$REPO/logs/runs.log
+WorkingDirectory=$REPO
+ExecStart=$REPO/scripts/listen.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+UNIT
+
+  systemctl --user daemon-reload
+  systemctl --user enable "$UNIT_NAME-listen.service" >/dev/null
+  systemctl --user restart "$UNIT_NAME-listen.service"
+fi
 
 # The rehearsals: same program, PREFLIGHT=true, on their own timer. Separate
 # because they must not be jittered — a rehearsal drifting nine minutes later
@@ -310,7 +431,17 @@ if [[ -n "$proxy_host" ]]; then
   echo "  going out through $proxy_host, so a punch arrives from there"
 fi
 printf '  %s\n' "${calendar_lines[@]}"
-echo "  each fires between its time and +9 minutes"
+echo "  each ASKS at its time, exactly, and waits for a tap"
+if ((${#deadline_lines[@]} > 0)); then
+  echo "  deadlines, which punch only what nobody confirmed:"
+  printf '    %s\n' "${deadline_lines[@]}"
+  echo "    each fires between its time and +2 minutes"
+fi
+if [[ -n "$(env_value COMMAND_URL)" ]]; then
+  echo "  listening for taps on $(env_value COMMAND_URL)"
+else
+  echo "  NO COMMAND_URL: nothing can hear a tap, so only the deadlines punch"
+fi
 if ((${#preflight_lines[@]} > 0)); then
   echo "  rehearsals ${PREFLIGHT_LEAD_MINUTES} minutes ahead, exact:"
   printf '    %s\n' "${preflight_lines[@]}"
