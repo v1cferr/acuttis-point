@@ -1,6 +1,7 @@
 import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/notification
+import acuttis_point/ptbr
 import acuttis_point/punch
 import acuttis_point/report
 import acuttis_point/state
@@ -20,7 +21,9 @@ fn registered() -> report.Report {
     at: moment("07:57"),
     state: state.Waiting(punch.Entry),
     decision: decision.Register(punch: punch.Entry, expected_at: at("07:51")),
-    registered: [],
+    // The day as Acuttis shows it after the punch, which is what the runner
+    // reports: the confirmation is a second read, not a hope.
+    registered: [state.Registered(punch: punch.Entry, at: at("07:57"))],
     outcome: report.Confirmed(at: at("07:57")),
   )
 }
@@ -60,11 +63,14 @@ fn broke() -> report.Report {
   )
 }
 
+// In Portuguese, and in the words Gestão de Pessoas uses in its own e-mails, so
+// what arrives on the phone can be compared to Acuttis without translating
+// anything first.
 pub fn a_registered_punch_says_which_and_when_test() {
   assert notification.from_report(registered())
     == notification.Notification(
-      title: "Punch registered",
-      body: "ENTRY at 07:57",
+      title: "Ponto batido: entrada",
+      body: "entrada registrada às 07:57. Hoje: entrada 07:57",
       priority: "default",
       tags: "white_check_mark",
     )
@@ -72,15 +78,17 @@ pub fn a_registered_punch_says_which_and_when_test() {
 
 pub fn a_problem_arrives_at_high_priority_test() {
   let failed = notification.from_report(broke())
-  assert failed.title == "Punch failed"
-  assert failed.body == "authenticating failed: acuttis rejected the sign in"
+  assert failed.title == "Ponto NÃO foi batido"
+  assert failed.body
+    == "Falhou ao fazer login no Acuttis: acuttis rejected the sign in"
   assert failed.priority == "high"
   assert failed.tags == "warning"
 
   let refusal = notification.from_report(refused())
-  assert refusal.title == "Punch refused"
+  assert refusal.title == "Ponto NÃO foi batido"
   assert refusal.body
-    == "ENTRY was due at 07:51, 159 minutes ago; refusing to backdate it"
+    == "a entrada era às 07:51 e já passou 159 min, tarde para registrar sem"
+    <> " mentir a hora"
   assert refusal.priority == "high"
 }
 
@@ -88,8 +96,8 @@ pub fn a_problem_arrives_at_high_priority_test() {
 // deserves if it is sent at all.
 pub fn nothing_to_do_arrives_quietly_test() {
   let quiet = notification.from_report(nothing_to_do())
-  assert quiet.title == "Nothing to do"
-  assert quiet.body == "ENTRY is already registered at 07:57"
+  assert quiet.title == "Nada a fazer"
+  assert quiet.body == "a entrada já está registrada às 07:57"
   assert quiet.priority == "low"
 }
 
@@ -102,17 +110,17 @@ pub fn a_dry_run_says_it_registered_nothing_test() {
       registered: [],
       outcome: report.Withheld,
     ))
-  assert withheld.body == "ENTRY was due, and was not registered"
+  assert withheld.body == "a entrada era agora, e DRY_RUN está ligado"
 }
 
 pub fn the_reason_comes_from_the_decision_test() {
-  // Same source as the log, so a notification cannot disagree with the rule
-  // that produced it.
+  // The rule is still the only source of the reason — the notification renders
+  // it in Portuguese rather than restating it, so the two cannot disagree about
+  // WHY, only about which language says so.
   let record = refused()
   let assert report.Decided(decision: chosen, ..) = record
   let assert decision.Abort(reason) = chosen
-  assert notification.from_report(record).body
-    == decision.abort_reason_to_string(reason)
+  assert notification.from_report(record).body == ptbr.abort_reason(reason)
 }
 
 pub fn always_sends_everything_test() {

@@ -417,10 +417,6 @@ in
         DRY_RUN = boolean cfg.dryRun;
         HEADLESS = "true";
         NOTIFY_ON = cfg.notifyOn;
-        # Keeps the session between runs, so four punches a day are not four
-        # sign-ins. Stands in for the password until it expires, so it lives in
-        # the private state directory and nowhere else.
-        SESSION_FILE = "/var/lib/acuttis-point/session.json";
         # Chromium wants somewhere to put its profile and crash dumps.
         HOME = "/var/lib/acuttis-point";
       }

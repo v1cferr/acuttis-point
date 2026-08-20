@@ -29,6 +29,7 @@ import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/list
 import gleam/string
+import support/files
 import support/fixture
 
 const workday = "2026-08-12"
@@ -113,7 +114,7 @@ pub fn a_due_punch_is_registered_through_a_real_browser_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
-      registered: [],
+      registered: [state.Registered(punch: punch.Entry, at: at("08:03"))],
       outcome: report.Confirmed(at: at("08:03")),
     )
   assert fixture.punches() == list.append(yesterday, [today_at("08:03")])
@@ -133,7 +134,10 @@ pub fn earlier_days_on_the_receipt_are_ignored_test() {
         punch: punch.LunchStart,
         expected_at: at("12:00"),
       ),
-      registered: [state.Registered(punch: punch.Entry, at: at("07:58"))],
+      registered: [
+        state.Registered(punch: punch.Entry, at: at("07:58")),
+        state.Registered(punch: punch.LunchStart, at: at("12:04")),
+      ],
       outcome: report.Confirmed(at: at("12:04")),
     )
   promise.resolve(Nil)
@@ -286,6 +290,40 @@ pub fn a_punch_is_confirmed_even_though_the_receipt_is_full_test() {
 // someone to look at it. "Today has no punches" would be a lie that reads as
 // truth, and on a day with three punches already registered it would invite the
 // automation to register a fourth.
+// The proof. A punch nobody can show is a punch to argue about, so a confirmed
+// run photographs the receipt it just read the new row from — the same page
+// Gestão de Pessoas would look at, at the moment the row appeared.
+pub fn a_registered_punch_leaves_a_photograph_of_the_receipt_test() {
+  let shots = "build/e2e-shots"
+  files.remove(shots)
+
+  use base_url <- promise.await(fixture.start(
+    registered: list.append(yesterday, [today_at("07:58")]),
+    lands_at: today_at("12:04"),
+  ))
+
+  let settings_env = env(base_url, [#("SCREENSHOT_DIR", shots)])
+  let assert Ok(settings) = config.from_env(settings_env)
+  let assert Ok(secrets) = credentials.from_env(settings_env)
+
+  use finished <- promise.await(runner.run(
+    settings: settings,
+    secrets: secrets,
+    now: moment("12:04"),
+    port: playwright.port(settings, selectors.from_env(settings_env)),
+  ))
+  use _ <- promise.await(fixture.stop())
+
+  let #(_, _, outcome) = decided(finished.report)
+  assert outcome == report.Confirmed(at: at("12:04"))
+
+  // Named for what it proves, and not empty.
+  let assert Ok(path) = finished.screenshot
+  assert string.contains(path, "registered-lunch-start")
+  assert files.has_content(path)
+  promise.resolve(Nil)
+}
+
 pub fn a_trigger_that_opens_nothing_is_an_interface_problem_test() {
   use base_url <- promise.await(fixture.start(
     registered: list.append(yesterday, [today_at("07:58")]),

@@ -20,8 +20,8 @@ import gleam/javascript/promise.{type Promise}
 import gleam/result
 import gleam/string
 
-/// A finished run: what happened, and the screenshot of the page at the moment
-/// it went wrong, when one was taken.
+/// A finished run: what happened, and the screenshot of the page it ended on,
+/// when one was taken.
 pub type Completed {
   Completed(report: report.Report, screenshot: Result(String, Nil))
 }
@@ -43,8 +43,9 @@ pub fn run(
       ))
     Ok(session) -> {
       use record <- promise.await(visit(settings, secrets, now, port, session))
-      // Taken while the page still exists: it is the only witness to an
-      // interface that changed under us.
+      // Taken while the page still exists: on a failure it is the only witness
+      // to an interface that changed under us, and on a success it is the
+      // receipt with the new punch on it.
       use shot <- promise.await(capture(settings, now, port, session, record))
       // The browser is closed whatever happened, so a failed run does not
       // leave a Chromium behind for the next timer to trip over.
@@ -54,9 +55,15 @@ pub fn run(
   }
 }
 
-/// Only for a run that broke. A refusal is a decision rather than a
-/// malfunction, and a late run refusing its window every day would fill a disk
-/// with pictures of a page that was working fine.
+/// A picture of a run that broke, or of one that registered a punch. Nothing
+/// else: a refusal is a decision rather than a malfunction, and a late run
+/// refusing its window every day would fill a disk with photographs of a page
+/// that was working fine.
+///
+/// The success case is the whole reason a punch can be proved rather than
+/// asserted. By the time it is taken the punches have already been read back, so
+/// what it photographs is the receipt with the new row on it — the same thing
+/// Gestão de Pessoas would look at, at the moment it appeared.
 fn capture(
   settings: config.Config,
   now: clock.Instant,
@@ -64,8 +71,8 @@ fn capture(
   session: session,
   record: report.Report,
 ) -> Promise(Result(String, Nil)) {
-  case settings.screenshot_dir, broken_at(record) {
-    Ok(dir), Ok(stage) -> {
+  case settings.screenshot_dir, worth_photographing(record) {
+    Ok(dir), Ok(label) -> {
       let path =
         dir
         <> "/"
@@ -73,7 +80,7 @@ fn capture(
         <> "-"
         <> string.replace(clock.time_to_string(now.time), each: ":", with: "")
         <> "-"
-        <> string.replace(report.stage_to_string(stage), each: " ", with: "-")
+        <> label
         <> ".png"
 
       use taken <- promise.await(port.capture(session, path))
@@ -87,12 +94,27 @@ fn capture(
   }
 }
 
-fn broken_at(record: report.Report) -> Result(report.Stage, Nil) {
+/// The filename's middle, in en-US like every other technical name here — the
+/// Portuguese belongs in what reaches the phone, not on disk.
+fn worth_photographing(record: report.Report) -> Result(String, Nil) {
   case record {
-    report.Broke(stage:, ..) -> Ok(stage)
-    report.Decided(outcome: report.Failed(stage:, ..), ..) -> Ok(stage)
+    report.Broke(stage:, ..) -> Ok(slug(report.stage_to_string(stage)))
+    report.Decided(outcome: report.Failed(stage:, ..), ..) ->
+      Ok(slug(report.stage_to_string(stage)))
+    report.Decided(
+      decision: decision.Register(punch: target, ..),
+      outcome: report.Confirmed(..),
+      ..,
+    ) -> Ok("registered-" <> slug(punch.to_string(target)))
     _ -> Error(Nil)
   }
+}
+
+fn slug(raw: String) -> String {
+  raw
+  |> string.lowercase
+  |> string.replace(each: " ", with: "-")
+  |> string.replace(each: "_", with: "-")
 }
 
 fn visit(
@@ -173,22 +195,39 @@ fn confirm(
 ) -> Promise(report.Report) {
   use read <- promise.await(port.read_punches(session, now.date))
 
-  let result = case read {
-    Error(error) -> failed(report.ConfirmingPunch, error)
+  case read {
+    Error(error) ->
+      promise.resolve(decided(
+        now,
+        outcome,
+        failed(report.ConfirmingPunch, error),
+      ))
     Ok(registered) ->
       case state.registered_at(registered, target) {
-        Ok(at) -> report.Confirmed(at: at)
+        // The day as it stands AFTER the punch, not before. This is the one
+        // report anyone checks against Acuttis, so it should show what Acuttis
+        // now shows rather than what it showed a moment ago.
+        Ok(at) ->
+          promise.resolve(report.Decided(
+            at: now,
+            state: outcome.state,
+            decision: outcome.decision,
+            registered: registered,
+            outcome: report.Confirmed(at: at),
+          ))
         Error(Nil) ->
-          report.Failed(
-            stage: report.ConfirmingPunch,
-            detail: "acuttis does not show "
-              <> punch.to_string(target)
-              <> " after registering it",
-          )
+          promise.resolve(decided(
+            now,
+            outcome,
+            report.Failed(
+              stage: report.ConfirmingPunch,
+              detail: "acuttis does not show "
+                <> punch.to_string(target)
+                <> " after registering it",
+            ),
+          ))
       }
   }
-
-  promise.resolve(decided(now, outcome, result))
 }
 
 fn decided(

@@ -193,7 +193,9 @@ pub fn a_due_punch_is_registered_and_confirmed_test() {
       at: moment("08:03"),
       state: state.Waiting(punch.Entry),
       decision: decision.Register(punch: punch.Entry, expected_at: at("08:00")),
-      registered: [],
+      // After the punch, not before: the confirmation is a second read of the
+      // receipt, so this is what Acuttis shows once the run is done.
+      registered: [state.Registered(punch: punch.Entry, at: at("08:03"))],
       outcome: report.Confirmed(at: at("08:03")),
     )
   // The punches are read a second time: the confirmation is observed, not

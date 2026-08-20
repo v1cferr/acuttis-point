@@ -168,7 +168,7 @@ pub fn a_finished_day_is_ready_without_touching_the_button_test() {
 
   assert !list.contains(spy.get(cell), "verify")
   assert preflight.exit_code(checked) == 0
-  assert notification.from_preflight(checked).title == "Day already complete"
+  assert notification.from_preflight(checked).title == "Dia já está completo"
   promise.resolve(Nil)
 }
 
@@ -201,7 +201,7 @@ pub fn the_notification_says_what_is_ready_test() {
       registered: day,
     )
   let message = notification.from_preflight(ready)
-  assert message.title == "Ready to punch LUNCH_START"
+  assert message.title == "Tudo pronto para a saída para o almoço"
   assert message.priority == "default"
 
   let broken =
@@ -211,6 +211,6 @@ pub fn the_notification_says_what_is_ready_test() {
       detail: "the punch button is disabled",
     )
   let alarm = notification.from_preflight(broken)
-  assert alarm.title == "Not ready to punch"
+  assert alarm.title == "ATENÇÃO: não vai dar para bater"
   assert alarm.priority == "high"
 }

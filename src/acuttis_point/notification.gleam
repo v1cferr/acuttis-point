@@ -6,10 +6,18 @@
 ////
 //// Pure, so what lands on the phone is decided by a test rather than by
 //// running the automation and waiting.
+////
+//// The text is in Brazilian Portuguese, against the rule that governs the rest
+//// of this repository, and on purpose: this is the one output whose reader is a
+//// person rather than a maintainer, and it is what he checks against Acuttis
+//// when Gestão de Pessoas asks about a missing punch. The words live in `ptbr`.
+//// The technical `detail` of a failure stays as it came — a Playwright timeout
+//// says more in its own words than in a translation of them.
 
 import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/preflight
+import acuttis_point/ptbr
 import acuttis_point/report
 import acuttis_point/state
 
@@ -53,31 +61,35 @@ pub fn from_report(record: report.Report) -> Notification {
   case record {
     report.Broke(stage:, detail:, ..) ->
       problem(
-        "Punch failed",
-        report.stage_to_string(stage) <> " failed: " <> detail,
+        "Ponto NÃO foi batido",
+        "Falhou " <> ptbr.stage(stage) <> ": " <> detail,
       )
 
-    report.Decided(decision: chosen, outcome:, ..) ->
+    report.Decided(decision: chosen, outcome:, registered:, ..) ->
       case outcome {
+        // The one message that says a thing was done rather than considered, so
+        // it names the punch, the minute, and the day it now adds up to. The
+        // screenshot rides along as the attachment.
         report.Confirmed(at:) ->
           good(
-            "Punch registered",
-            decision.action_to_string(chosen)
-              <> " at "
-              <> clock.time_to_string(at),
+            "Ponto batido: " <> target(chosen),
+            target(chosen)
+              <> " registrada às "
+              <> clock.time_to_string(at)
+              <> ". Hoje: "
+              <> ptbr.registered(registered),
           )
         report.Withheld ->
           quiet(
-            "Dry run",
-            decision.action_to_string(chosen)
-              <> " was due, and was not registered",
+            "Simulação, nada foi registrado",
+            "a " <> target(chosen) <> " era agora, e DRY_RUN está ligado",
           )
-        report.NothingToDo -> quiet("Nothing to do", why(chosen))
-        report.Refused -> problem("Punch refused", why(chosen))
+        report.NothingToDo -> quiet("Nada a fazer", why(chosen))
+        report.Refused -> problem("Ponto NÃO foi batido", why(chosen))
         report.Failed(stage:, detail:) ->
           problem(
-            "Punch failed",
-            report.stage_to_string(stage) <> " failed: " <> detail,
+            "Ponto NÃO foi batido",
+            "Falhou " <> ptbr.stage(stage) <> ": " <> detail,
           )
       }
   }
@@ -88,18 +100,32 @@ pub fn from_report(record: report.Report) -> Notification {
 pub fn from_preflight(checked: preflight.Preflight) -> Notification {
   case checked {
     preflight.Ready(day: state.Completed, ..) ->
-      quiet("Day already complete", "nothing left to punch today")
-    preflight.Ready(day:, registered:, ..) ->
+      quiet("Dia já está completo", "nada mais para bater hoje")
+    preflight.Ready(day: state.Waiting(missing), registered:, ..) ->
       good(
-        "Ready to punch " <> preflight.next_punch(day),
-        "signed in, day read, punch button reachable. So far: "
-          <> state.registered_to_string(registered),
+        "Tudo pronto para a " <> ptbr.punch_name(missing),
+        "login ok, marcações lidas, e o botão de ponto aceita o clique. Hoje: "
+          <> ptbr.registered(registered),
+      )
+    preflight.Ready(registered:, ..) ->
+      good(
+        "Tudo pronto",
+        "login ok e botão de ponto responde. Hoje: "
+          <> ptbr.registered(registered),
       )
     preflight.NotReady(stage:, detail:, ..) ->
       problem(
-        "Not ready to punch",
-        report.stage_to_string(stage) <> " failed: " <> detail,
+        "ATENÇÃO: não vai dar para bater",
+        "Falhou " <> ptbr.stage(stage) <> ": " <> detail,
       )
+  }
+}
+
+/// What a decision was about, in the words Gestão de Pessoas uses.
+fn target(chosen: decision.Decision) -> String {
+  case chosen {
+    decision.Register(punch: kind, ..) -> ptbr.punch_name(kind)
+    decision.Skip(_) | decision.Abort(_) -> "marcação"
   }
 }
 
@@ -116,9 +142,10 @@ fn is_problem(record: report.Report) -> Bool {
 /// the rule that produced it any more than the log can.
 fn why(chosen: decision.Decision) -> String {
   case chosen {
-    decision.Skip(reason) -> decision.skip_reason_to_string(reason)
-    decision.Abort(reason) -> decision.abort_reason_to_string(reason)
-    decision.Register(..) -> decision.to_string(chosen)
+    decision.Skip(reason) -> ptbr.skip_reason(reason)
+    decision.Abort(reason) -> ptbr.abort_reason(reason)
+    decision.Register(punch: kind, ..) ->
+      "a " <> ptbr.punch_name(kind) <> " estava para ser registrada"
   }
 }
 
