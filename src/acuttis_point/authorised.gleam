@@ -81,10 +81,17 @@ pub fn to_line(authorised: Authorised) -> String {
 
 /// Spend the token, or put it back.
 ///
-/// Spent when the punch is on record — including when it was already there,
-/// since a token whose punch exists has nothing left to authorise. Put back
-/// only when the punch genuinely did not happen, because the deadline run
-/// deserves its turn at a failure the tap ran into.
+/// The question is whether trying again could give a different answer.
+///
+/// Spent when the punch is on record, including when it was already there: a
+/// token whose punch exists has nothing left to authorise. Spent too when the
+/// rule refused, because a rule does not change its mind — a window that has
+/// closed stays closed, and a day with more markings than slots stays impossible
+/// until somebody at Gestão de Pessoas edits it. Two taps on that produced two
+/// identical refusals when this was tested, which is two alarms for one problem.
+///
+/// Put back only when something broke: the browser, the interface, the network.
+/// Those are the failures the deadline run deserves its turn at.
 fn settle(
   settings: config.Config,
   claimed: pending.Pending,
@@ -92,7 +99,8 @@ fn settle(
 ) -> Nil {
   case record {
     report.Decided(outcome: report.Confirmed(..), ..)
-    | report.Decided(outcome: report.NothingToDo, ..) ->
+    | report.Decided(outcome: report.NothingToDo, ..)
+    | report.Decided(outcome: report.Refused, ..) ->
       pending.spend(settings.pending_file)
     _ -> pending.release(path: settings.pending_file, pending: claimed)
   }

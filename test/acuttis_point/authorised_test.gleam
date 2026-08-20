@@ -322,3 +322,55 @@ pub fn asking_offers_a_token_and_registers_nothing_test() {
   assert waiting.punch == punch.LunchStart
   promise.resolve(Nil)
 }
+
+// A rule does not change its mind, so a refusal spends the token. Tested live on
+// 2026-08-20: two taps on a day with five markings produced two identical
+// refusals, which is two alarms for one problem — and the deadline would have
+// made a third.
+pub fn a_refusal_spends_the_token_test() {
+  let file = clean("refused")
+  offer(file, "tok3n")
+  // A day already complete makes the rule abort rather than the browser fail.
+  let full = [
+    state.Registered(punch: punch.Entry, at: at("07:58")),
+    state.Registered(punch: punch.LunchStart, at: at("12:01")),
+    state.Registered(punch: punch.LunchEnd, at: at("13:05")),
+    state.Registered(punch: punch.Exit, at: at("17:33")),
+  ]
+  let #(port, _) = fake(full, Ok(Nil))
+
+  // Well past the last window, so the decision is an abort rather than a skip.
+  use done <- promise.await(authorised.run(
+    settings: settings(file),
+    secrets: secrets(),
+    now: moment("12:04"),
+    port: port,
+    offered: Ok("tok3n"),
+  ))
+
+  assert outcome(done) == report.NothingToDo
+  // Either way it is spent: nothing is left for a second tap to find.
+  assert pending.offered(file) == Error(pending.NothingPending)
+  promise.resolve(Nil)
+}
+
+// But something that broke is worth another go, because the next attempt really
+// can come out differently.
+pub fn a_broken_run_gives_the_token_back_test() {
+  let file = clean("broke")
+  offer(file, "tok3n")
+  let #(port, _) =
+    fake(after_arriving(), Error(browser.PunchUnavailable("not visible")))
+
+  use done <- promise.await(authorised.run(
+    settings: settings(file),
+    secrets: secrets(),
+    now: moment("12:04"),
+    port: port,
+    offered: Ok("tok3n"),
+  ))
+
+  let assert report.Failed(..) = outcome(done)
+  let assert Ok(_) = pending.offered(file)
+  promise.resolve(Nil)
+}
