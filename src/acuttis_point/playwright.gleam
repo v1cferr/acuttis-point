@@ -71,6 +71,9 @@ pub fn port(
             // is that the generated class name changed under us.
             acuttis.PunchListNotFound ->
               browser.InterfaceChanged("any row on the punch receipt")
+            // Read correctly; what it says is that a punch was made twice.
+            acuttis.MorePunchesThanADayHas(found:) ->
+              browser.TooManyMarkings(found)
             _ -> browser.UnexpectedResponse(acuttis.error_to_string(error))
           }
         })

@@ -6,6 +6,7 @@
 
 import acuttis_point/clock
 import acuttis_point/punch
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -30,6 +31,10 @@ pub type Inconsistency {
   OutOfOrder(expected: punch.Punch, found: punch.Punch)
   /// A punch beyond the four a day can hold.
   ExtraPunch(punch.Punch)
+  /// More markings than a day has slots for, so which punch each one is cannot
+  /// be worked out at all. What produces this is a punch made twice — a hand and
+  /// a timer both reaching for the same one.
+  MoreMarkingsThanADay(found: Int)
   /// A punch timestamped before the one preceding it.
   TimeWentBackwards(
     punch: punch.Punch,
@@ -84,6 +89,10 @@ pub fn inconsistency_to_string(inconsistency: Inconsistency) -> String {
       <> punch.to_string(expected)
       <> " but found "
       <> punch.to_string(found)
+    MoreMarkingsThanADay(found:) ->
+      "acuttis shows "
+      <> int.to_string(found)
+      <> " markings today, more than a day has slots for"
     ExtraPunch(extra) ->
       "punch " <> punch.to_string(extra) <> " beyond a complete day"
     TimeWentBackwards(punch: target, at:, previous:) ->

@@ -133,6 +133,13 @@ fn visit(
       use read <- promise.await(port.read_punches(session, now.date))
 
       case read {
+        // A day with more markings than slots is not a broken run. It was read
+        // correctly and what it says is that a punch was made twice, so this
+        // refuses rather than fails — a failure here would take the rest of the
+        // day's punches down with it, which is exactly what happened on
+        // 2026-08-20 after a duplicate landed at 08:08.
+        Error(browser.TooManyMarkings(found)) ->
+          promise.resolve(too_many(now, found))
         Error(error) ->
           promise.resolve(broke(now, report.ReadingPunches, error))
         Ok(registered) ->
@@ -300,6 +307,20 @@ fn decided(
     decision: outcome.decision,
     registered: outcome.registered,
     outcome: result,
+  )
+}
+
+/// A day nobody can read, reported through the machinery that already exists for
+/// a day that makes no sense: an invalid state, an abort, a refusal. Exit 2, so
+/// the unit is red and the notification says what to fix.
+fn too_many(now: clock.Instant, found: Int) -> report.Report {
+  let wrong = state.MoreMarkingsThanADay(found)
+  report.Decided(
+    at: now,
+    state: state.Invalid(wrong),
+    decision: decision.Abort(decision.InconsistentState(wrong)),
+    registered: [],
+    outcome: report.Refused,
   )
 }
 

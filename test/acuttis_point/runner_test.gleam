@@ -467,3 +467,27 @@ pub fn a_full_day_is_left_alone_test() {
   assert !list.contains(calls(cell), "register")
   promise.resolve(Nil)
 }
+
+// 2026-08-20: a duplicate landed at 08:08 and every run after it reported
+// FAILED — "acuttis shows 5 punches today, more than a day has". Harmless that
+// evening because nothing was left to punch, and a disaster on any other day:
+// one duplicate in the morning would take the lunch and the exit down with it,
+// which is the opposite of what this exists for.
+//
+// The page was read perfectly well. What it says is that somebody punched twice.
+// So this refuses, and a refusal does not cascade.
+pub fn a_day_with_more_markings_than_slots_refuses_rather_than_fails_test() {
+  let duplicated =
+    Behaviour(..working(), first_read: Error(browser.TooManyMarkings(5)))
+  use #(record, journal) <- promise.await(go(duplicated, [], "12:40", []))
+
+  let assert report.Decided(state: day, decision: chosen, outcome:, ..) = record
+  assert day == state.Invalid(state.MoreMarkingsThanADay(5))
+  assert chosen
+    == decision.Abort(decision.InconsistentState(state.MoreMarkingsThanADay(5)))
+  assert outcome == report.Refused
+  // Exit 2, not 1: red for a human, but not the code that means the tool broke.
+  assert report.exit_code(record) == 2
+  assert !list.contains(spy.get(journal).calls, "register")
+  promise.resolve(Nil)
+}

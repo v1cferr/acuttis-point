@@ -9,6 +9,7 @@ import acuttis_point/clock
 import acuttis_point/credentials
 import acuttis_point/punch
 import acuttis_point/state
+import gleam/int
 import gleam/javascript/promise.{type Promise}
 
 /// Everything that can go wrong on the other side of the port. The list mirrors
@@ -32,6 +33,12 @@ pub type BrowserError {
   PunchUnavailable(detail: String)
   /// The page answered in a shape the adapter could not read.
   UnexpectedResponse(detail: String)
+  /// More markings on today than a day has slots for. Kept apart from the other
+  /// errors because it is not a malfunction: the page was read perfectly well
+  /// and what it says is that somebody punched twice. A run meeting this must
+  /// refuse rather than fail, or one duplicate in the morning takes the rest of
+  /// the day's punches down with it.
+  TooManyMarkings(found: Int)
 }
 
 pub type Port(session) {
@@ -84,5 +91,9 @@ pub fn error_to_string(error: BrowserError) -> String {
       <> "; the acuttis interface may have changed"
     PunchUnavailable(detail:) -> "the punch control is unavailable: " <> detail
     UnexpectedResponse(detail:) -> "unexpected response: " <> detail
+    TooManyMarkings(found:) ->
+      "acuttis shows "
+      <> int.to_string(found)
+      <> " markings today, more than a day has slots for"
   }
 }

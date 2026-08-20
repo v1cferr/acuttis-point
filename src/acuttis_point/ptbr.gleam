@@ -126,6 +126,11 @@ pub fn abort_reason(reason: decision.AbortReason) -> String {
       <> " e já passou "
       <> int.to_string(minutes_late)
       <> " min, tarde para registrar sem mentir a hora"
+    decision.InconsistentState(state.MoreMarkingsThanADay(found:)) ->
+      "hoje tem "
+      <> int.to_string(found)
+      <> " marcações, mais do que um dia tem. Não vou bater nada até a GP"
+      <> " apagar a repetida"
     decision.InconsistentState(_) ->
       "as marcações de hoje não fazem sentido na ordem em que estão"
   }
