@@ -72,9 +72,10 @@ pub fn from_report(record: report.Report) -> Notification {
         // screenshot rides along as the attachment.
         report.Confirmed(at:) ->
           good(
-            "Ponto batido: " <> target(chosen),
-            target(chosen)
-              <> " registrada às "
+            "Ponto batido: " <> bare(chosen),
+            "bati "
+              <> target(chosen)
+              <> " às "
               <> clock.time_to_string(at)
               <> ". Hoje: "
               <> ptbr.registered(registered),
@@ -82,7 +83,7 @@ pub fn from_report(record: report.Report) -> Notification {
         report.Withheld ->
           quiet(
             "Simulação, nada foi registrado",
-            "a " <> target(chosen) <> " era agora, e DRY_RUN está ligado",
+            target(chosen) <> " era agora, e DRY_RUN está ligado",
           )
         report.NothingToDo -> quiet("Nada a fazer", why(chosen))
         report.Refused -> problem("Ponto NÃO foi batido", why(chosen))
@@ -103,7 +104,7 @@ pub fn from_preflight(checked: preflight.Preflight) -> Notification {
       quiet("Dia já está completo", "nada mais para bater hoje")
     preflight.Ready(day: state.Waiting(missing), registered:, ..) ->
       good(
-        "Tudo pronto para a " <> ptbr.punch_name(missing),
+        "Tudo pronto para " <> ptbr.punch_with_article(missing),
         "login ok, marcações lidas, e o botão de ponto aceita o clique. Hoje: "
           <> ptbr.registered(registered),
       )
@@ -123,6 +124,14 @@ pub fn from_preflight(checked: preflight.Preflight) -> Notification {
 
 /// What a decision was about, in the words Gestão de Pessoas uses.
 fn target(chosen: decision.Decision) -> String {
+  case chosen {
+    decision.Register(punch: kind, ..) -> ptbr.punch_with_article(kind)
+    decision.Skip(_) | decision.Abort(_) -> "a marcação"
+  }
+}
+
+/// Without the article, for a title where it would only take up room.
+fn bare(chosen: decision.Decision) -> String {
   case chosen {
     decision.Register(punch: kind, ..) -> ptbr.punch_name(kind)
     decision.Skip(_) | decision.Abort(_) -> "marcação"
@@ -145,7 +154,7 @@ fn why(chosen: decision.Decision) -> String {
     decision.Skip(reason) -> ptbr.skip_reason(reason)
     decision.Abort(reason) -> ptbr.abort_reason(reason)
     decision.Register(punch: kind, ..) ->
-      "a " <> ptbr.punch_name(kind) <> " estava para ser registrada"
+      "era hora de bater " <> ptbr.punch_with_article(kind)
   }
 }
 

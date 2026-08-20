@@ -28,6 +28,22 @@ pub fn punch_name(target: punch.Punch) -> String {
   }
 }
 
+/// With its article, because three of these are feminine and one is not, and a
+/// sentence built from a bare noun produced "Tudo pronto para a retorno do
+/// almoço" on the first day this ran.
+///
+/// Everything composed from it below uses verbs that do not inflect for gender —
+/// "consta", "era", "abre" — rather than participles that would need a second
+/// agreement to get right. Generated Portuguese is much safer that way.
+pub fn punch_with_article(target: punch.Punch) -> String {
+  case target {
+    punch.Entry -> "a entrada"
+    punch.LunchStart -> "a saída para o almoço"
+    punch.LunchEnd -> "o retorno do almoço"
+    punch.Exit -> "a saída"
+  }
+}
+
 /// A clause rather than a noun, so it composes without having to agree with the
 /// gender of whatever word comes before it: "Falhou ao ler as marcações".
 pub fn stage(step: report.Stage) -> String {
@@ -73,13 +89,9 @@ pub fn skip_reason(reason: decision.SkipReason) -> String {
       clock.date_to_dmy(date) <> " está na lista de dias sem expediente"
     decision.DayAlreadyComplete -> "o dia já está completo"
     decision.AlreadyRegistered(punch: target, at:) ->
-      "a "
-      <> punch_name(target)
-      <> " já está registrada às "
-      <> clock.time_to_string(at)
+      punch_with_article(target) <> " já consta às " <> clock.time_to_string(at)
     decision.TooEarly(next: target, opens_at:) ->
-      "a "
-      <> punch_name(target)
+      punch_with_article(target)
       <> " só abre às "
       <> clock.time_to_string(opens_at)
   }
@@ -88,8 +100,7 @@ pub fn skip_reason(reason: decision.SkipReason) -> String {
 pub fn abort_reason(reason: decision.AbortReason) -> String {
   case reason {
     decision.WindowClosed(punch: target, expected_at:, minutes_late:) ->
-      "a "
-      <> punch_name(target)
+      punch_with_article(target)
       <> " era às "
       <> clock.time_to_string(expected_at)
       <> " e já passou "

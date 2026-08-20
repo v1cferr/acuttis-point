@@ -1,6 +1,7 @@
 import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/notification
+import acuttis_point/preflight
 import acuttis_point/ptbr
 import acuttis_point/punch
 import acuttis_point/report
@@ -70,7 +71,7 @@ pub fn a_registered_punch_says_which_and_when_test() {
   assert notification.from_report(registered())
     == notification.Notification(
       title: "Ponto batido: entrada",
-      body: "entrada registrada às 07:57. Hoje: entrada 07:57",
+      body: "bati a entrada às 07:57. Hoje: entrada 07:57",
       priority: "default",
       tags: "white_check_mark",
     )
@@ -97,7 +98,7 @@ pub fn a_problem_arrives_at_high_priority_test() {
 pub fn nothing_to_do_arrives_quietly_test() {
   let quiet = notification.from_report(nothing_to_do())
   assert quiet.title == "Nada a fazer"
-  assert quiet.body == "a entrada já está registrada às 07:57"
+  assert quiet.body == "a entrada já consta às 07:57"
   assert quiet.priority == "low"
 }
 
@@ -166,4 +167,39 @@ pub fn parse_trigger_names_the_three_modes_test() {
   assert notification.parse_trigger("problem") == Ok(notification.OnProblem)
   assert notification.parse_trigger("sometimes")
     == Error("sometimes is not one of always, action, problem")
+}
+
+// "Tudo pronto para a retorno do almoço" went to a real phone on the first day
+// this ran. Three of the four punch names are feminine and one is not, so any
+// sentence built from a bare noun gets one of them wrong.
+pub fn the_portuguese_agrees_with_the_punch_it_names_test() {
+  assert ptbr.punch_with_article(punch.Entry) == "a entrada"
+  assert ptbr.punch_with_article(punch.LunchStart) == "a saída para o almoço"
+  assert ptbr.punch_with_article(punch.LunchEnd) == "o retorno do almoço"
+  assert ptbr.punch_with_article(punch.Exit) == "a saída"
+
+  // And the sentences built from it read as Portuguese for every one of them.
+  let ready = fn(missing) {
+    notification.from_preflight(
+      preflight.Ready(
+        at: moment("12:20"),
+        day: state.Waiting(missing),
+        registered: [],
+      ),
+    ).title
+  }
+  assert ready(punch.LunchEnd) == "Tudo pronto para o retorno do almoço"
+  assert ready(punch.Exit) == "Tudo pronto para a saída"
+
+  let done = fn(kind) {
+    notification.from_report(report.Decided(
+      at: moment("13:52"),
+      state: state.Waiting(kind),
+      decision: decision.Register(punch: kind, expected_at: at("13:51")),
+      registered: [state.Registered(punch: kind, at: at("13:52"))],
+      outcome: report.Confirmed(at: at("13:52")),
+    )).body
+  }
+  assert done(punch.LunchEnd)
+    == "bati o retorno do almoço às 13:52. Hoje: retorno do almoço 13:52"
 }
