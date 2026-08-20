@@ -1,16 +1,31 @@
 # acuttis-point
 
-Personal automation that registers timekeeping punches on
-[Acuttis](https://app.acuttis.com.br/dashboard) through a headless browser,
-so the same manual flow does not have to be repeated every working day.
+Personal automation for timekeeping punches on
+[Acuttis](https://app.acuttis.com.br/dashboard), through a headless browser.
+
+It asks before it acts. At the start of each punch's window it sends a
+notification with a button on it; tapping the button is what makes the punch. If
+nobody taps, a deadline run near the end of the window punches anyway, so a
+missed tap costs a later punch rather than a missing one.
+
+That shape came from the two days it did not have it. On 2026-08-19 and again on
+2026-08-20 a punch made by hand landed minutes after the automatic one, and
+Acuttis read the stray marking as the next transition in the day — a lunch that
+began nine minutes after arriving. Nothing in a schedule prevents that. What
+prevents it is having one thing that authorises a punch, which both the tap and
+the deadline have to take before either can act.
 
 Tracked in [V1C-73](https://v1cferr.atlassian.net/browse/V1C-73).
 
 ## Status
 
-The whole pipeline is in place and runs end to end: configuration, the
-decision rules, the Playwright adapter, the run record, and a NixOS service
-and timer.
+The whole pipeline is in place and runs end to end: configuration, the decision
+rules, the Playwright adapter, the run record, the ask-and-confirm flow, and a
+NixOS service and timer.
+
+Verified against the live site: the notification with its button, the command
+topic, the listener, and a claim refused as unauthorised — the full path from a
+tap to a decision, without registering anything.
 
 Verified against the live site: reaching `/dashboard` and being redirected to
 `/signin`, filling and submitting the sign-in form, and recognising a rejected
@@ -117,27 +132,44 @@ a scheduled time a punch may still be registered. It is also what makes a
 catch-up run safe after the machine was asleep — a run that wakes up too late
 refuses to punch instead of inventing a time.
 
-### Spreading the punches, in one direction
+### One token, spendable once
 
-A timer can spread each punch over a jitter window so the day is not registered
-to the same minute twice. systemd can only ever delay a run, never bring it
-forward, and that is what decides how the schedule has to be written:
+Two things want to punch: a tap on the notification, and the deadline that covers
+a tap nobody made. They must never both do it.
+
+So there is exactly one thing that authorises a punch, and it is a file. Taking
+it is `rename(2)` — atomic within a filesystem, so of two runs racing for it
+exactly one wins, and losing is indistinguishable from there being nothing to
+take, which is the right answer for the loser either way.
 
 ```
-ENTRY_TIME and LUNCH_END   =  the time you want, minus the jitter
-LUNCH_START and EXIT_TIME  =  the time you want
+12:35   ask       writes a token, sends the notification with a button
+12:38   tap       claims the token, punches, destroys it
+12:43   deadline  finds nothing pending, does nothing
 ```
 
-Entry and the return from lunch then land at or before their wanted times,
-while lunch start and exit land at or after theirs. Every one of those
-directions lengthens the worked day, so it comes out at or above nominal and
-never under it — with nine minutes of jitter, somewhere between nominal and
-nominal plus 36 minutes.
+or, on a day nobody taps:
 
-The jitter has to stay within `TIME_TOLERANCE_MINUTES`, or a delayed run would
-arrive after its own window had closed and refuse to register anything. The
-NixOS module asserts this; `scripts/schedule.sh` uses nine minutes against a
-default tolerance of ten.
+```
+12:35   ask       writes a token, sends the notification
+12:43   deadline  claims the token, punches, destroys it
+```
+
+The refusals were designed before the happy path. A wrong token never opens a
+browser and is put back rather than consumed, so a mistyped command cannot cost
+the deadline its turn. An expired one is refused: a punch authorised at 12:35 and
+spent at 15:00 would be a lie about when the day happened. A second tap on a
+notification already honoured finds nothing pending and exits zero, because that
+is the normal case rather than an error. A punch that failed puts the token back
+so the deadline can retry it.
+
+Claiming decides nothing. The run still reads the day itself and the day model is
+still the judge, so a punch already on record is not made twice even by a valid
+token — which is precisely the collision that started all this.
+
+Punch times vary on their own now: a punch happens when the button is tapped. The
+deadline is jittered over the last two minutes of its window so the fallback is
+not stamped at the same second every day.
 
 ### The rehearsal, fifteen minutes early
 
