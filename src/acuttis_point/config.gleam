@@ -278,6 +278,22 @@ pub fn scheduled_time(
   }
 }
 
+/// The next punch the schedule expects after this moment, if the day has one
+/// left. Read from the configuration alone, so it can be answered without
+/// opening a browser — which is what makes it usable in the reply to a tap that
+/// arrived too late to do anything else.
+pub fn next_scheduled(
+  schedule: Schedule,
+  after: clock.TimeOfDay,
+) -> Result(#(punch.Punch, clock.TimeOfDay), Nil) {
+  punch.sequence
+  |> list.map(fn(target) { #(target, scheduled_time(schedule, target)) })
+  |> list.filter(fn(pair) {
+    clock.minutes_since_midnight(pair.1) > clock.minutes_since_midnight(after)
+  })
+  |> list.first
+}
+
 /// The effective settings, for the header of a run log. Safe to print: a
 /// `Config` never carries credentials.
 pub fn describe(config: Config) -> String {

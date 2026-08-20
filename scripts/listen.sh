@@ -72,23 +72,33 @@ curl --silent --no-buffer --show-error "$command_url/json" |
 
     token="${BASH_REMATCH[1]}"
 
-    # Advisory triage, not authorisation: the program is still the only thing
-    # that decides whether a token is valid, unexpired and unspent. This only
-    # avoids paying for the trip when the answer is obviously no — and the trip
-    # can mean bringing a VPN up and down, which a stranger who guessed the topic
-    # should not be able to make happen by posting noise.
+    # Which way to run it, not whether to. The program is still the only thing
+    # that decides whether a token is valid, unexpired and unspent — this only
+    # decides whether the trip through the tunnel is worth paying for.
+    #
+    # A token that matches nothing can only be declined, and declining reads a
+    # local file and sends a notification: no Acuttis, no browser, no tunnel. So
+    # it runs the binary directly. That keeps a stale tap instant, and keeps a
+    # stranger who guessed the topic from making a VPN come up and down by
+    # posting noise.
+    #
+    # It still runs, though. A tap that does nothing and says nothing is how
+    # somebody ends up at the totem in the building making a second marking, so
+    # every tap gets an answer.
     pending_file="$(env_value PENDING_FILE)"
     pending_file="$REPO/${pending_file:-state/pending.json}"
-    if ! grep -qxF "token=$token" "$pending_file" 2>/dev/null; then
-      echo "listen: no punch is waiting for that token, ignoring it"
-      continue
+    if grep -qxF "token=$token" "$pending_file" 2>/dev/null; then
+      echo "listen: a tap arrived, spending its token"
+      how="$runner"
+    else
+      echo "listen: nothing is waiting for that token, answering without a tunnel"
+      how="$REPO/state/current/bin/acuttis-point"
     fi
 
-    echo "listen: a tap arrived, spending its token"
     # Never fatal: a punch that fails has already said so, on the phone and in
     # the journal, and this process has to survive to hear the next tap.
     CLAIM_TOKEN="$token" ACUTTIS_BINARY="$REPO/state/current/bin/acuttis-point" \
-      "$runner" || echo "listen: that punch did not go through"
+      "$how" || echo "listen: that punch did not go through"
   done
 
 # Reached only when the stream closes, which is a restart rather than an end.

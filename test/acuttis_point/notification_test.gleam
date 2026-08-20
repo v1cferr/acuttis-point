@@ -1,6 +1,8 @@
 import acuttis_point/clock
+import acuttis_point/config
 import acuttis_point/decision
 import acuttis_point/notification
+import acuttis_point/pending
 import acuttis_point/preflight
 import acuttis_point/ptbr
 import acuttis_point/punch
@@ -293,4 +295,68 @@ pub fn a_confirmed_punch_is_loud_test() {
   let done = notification.from_report(registered())
   assert done.priority == "high"
   assert done.title == "Ponto batido: entrada"
+}
+
+// A tap that cannot be honoured still gets an answer. Silence is what sends
+// somebody to the totem in the building to make sure, and that second marking is
+// the whole problem.
+pub fn a_tap_that_cannot_be_honoured_still_answers_test() {
+  let schedule =
+    config.Schedule(
+      entry: at("07:51"),
+      lunch_start: at("12:35"),
+      lunch_end: at("13:51"),
+      exit: at("17:30"),
+    )
+
+  // Tapping the entry notification again, mid morning: already honoured, and the
+  // reply says what comes next without touching Acuttis to find out.
+  let again =
+    notification.from_declined(
+      pending.NothingPending,
+      config.next_scheduled(schedule, at("08:30")),
+    )
+  assert again.title == "Esse pedido já foi atendido"
+  assert again.body
+    == "Nada foi registrado agora. O próximo é a saída para o almoço, às 12:35."
+  assert again.priority == "low"
+  assert again.action == Error(Nil)
+
+  // An old notification tapped long after its window closed.
+  let stale =
+    notification.from_declined(
+      pending.Expired(expired_at: at("08:01")),
+      config.next_scheduled(schedule, at("10:00")),
+    )
+  assert stale.title == "Esse pedido expirou às 08:01"
+  assert stale.body
+    == "Nada foi registrado agora. O próximo é a saída para o almoço, às 12:35."
+
+  // And after the last punch of the day there is nothing to promise.
+  let done =
+    notification.from_declined(
+      pending.NothingPending,
+      config.next_scheduled(schedule, at("18:00")),
+    )
+  assert done.body
+    == "Nada foi registrado agora. Não há mais nada para bater hoje."
+}
+
+// The schedule alone answers "what is next", so a stale tap costs no browser.
+pub fn the_next_punch_comes_from_the_schedule_test() {
+  let schedule =
+    config.Schedule(
+      entry: at("07:51"),
+      lunch_start: at("12:35"),
+      lunch_end: at("13:51"),
+      exit: at("17:30"),
+    )
+
+  assert config.next_scheduled(schedule, at("00:00"))
+    == Ok(#(punch.Entry, at("07:51")))
+  assert config.next_scheduled(schedule, at("07:51"))
+    == Ok(#(punch.LunchStart, at("12:35")))
+  assert config.next_scheduled(schedule, at("13:00"))
+    == Ok(#(punch.LunchEnd, at("13:51")))
+  assert config.next_scheduled(schedule, at("17:30")) == Error(Nil)
 }

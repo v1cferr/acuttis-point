@@ -18,8 +18,10 @@ import acuttis_point/audit
 import acuttis_point/balance
 import acuttis_point/clock
 import acuttis_point/decision
+import acuttis_point/pending
 import acuttis_point/preflight
 import acuttis_point/ptbr
+import acuttis_point/punch
 import acuttis_point/report
 import acuttis_point/state
 import acuttis_point/timesheet
@@ -214,6 +216,49 @@ pub fn from_inspection(inspection: timesheet.Inspection) -> Notification {
           |> string.join("\n"),
       )
   }
+}
+
+/// The answer to a tap that could not be honoured.
+///
+/// Never silence. A tap that does nothing and says nothing is how somebody ends
+/// up walking to the totem in the building, and a second marking there is the
+/// whole thing this is trying to avoid. So every tap gets a reply, even the ones
+/// whose reply is "that already happened".
+///
+/// `next` comes from the schedule rather than from Acuttis, so this costs no
+/// browser: a stale tap should be cheap to answer.
+pub fn from_declined(
+  reason: pending.ClaimError,
+  next: Result(#(punch.Punch, clock.TimeOfDay), Nil),
+) -> Notification {
+  let what = case reason {
+    pending.NothingPending -> "Esse pedido já foi atendido"
+    pending.Expired(expired_at:) ->
+      "Esse pedido expirou às " <> clock.time_to_string(expired_at)
+    pending.WrongDay(..) -> "Esse pedido era de outro dia"
+    pending.WrongToken -> "Esse pedido não vale mais"
+    pending.Unreadable(..) -> "Não consegui ler o pedido"
+  }
+
+  let then = case next {
+    Ok(#(target, at)) ->
+      " O próximo é "
+      <> ptbr.punch_with_article(target)
+      <> ", às "
+      <> clock.time_to_string(at)
+      <> "."
+    Error(Nil) -> " Não há mais nada para bater hoje."
+  }
+
+  Notification(
+    title: what,
+    body: "Nada foi registrado agora." <> then,
+    // Quiet: the common cause is a second tap on a notification already
+    // honoured, and being told twice is not an emergency.
+    priority: "low",
+    tags: "information_source",
+    action: Error(Nil),
+  )
 }
 
 /// The month's hours, in one clause. Says how many days it is measured over,

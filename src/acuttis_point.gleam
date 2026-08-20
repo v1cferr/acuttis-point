@@ -11,8 +11,10 @@ import acuttis_point/config
 import acuttis_point/credentials
 import acuttis_point/discovery
 import acuttis_point/notification
+import acuttis_point/pending
 import acuttis_point/playwright
 import acuttis_point/preflight
+import acuttis_point/punch
 import acuttis_point/report
 import acuttis_point/runner
 import acuttis_point/selectors
@@ -130,10 +132,18 @@ pub fn main() -> Nil {
                     log(out, finished.report)
                     send(out, finished.report, finished.screenshot)
                   }
-                  // A declined claim is not a run. It is worth a line in the
-                  // journal and nothing on the phone: the common cause is a
-                  // second tap on a notification already honoured.
-                  authorised.Declined(..) -> promise.resolve(Nil)
+                  // A declined claim is not a run, but it is still an answer
+                  // owed: a tap that does nothing and says nothing is how
+                  // somebody ends up at the totem making a second marking.
+                  authorised.Declined(reason:, ..) ->
+                    declined(
+                      out,
+                      reason,
+                      config.next_scheduled(
+                        setup.settings.schedule,
+                        setup.now.time,
+                      ),
+                    )
                 }
               })
             Error(Nil) ->
@@ -291,6 +301,36 @@ fn button(
   case message.action {
     Ok(notification.Action(label:, command:)) -> Ok(#(label, command))
     Error(Nil) -> Error(Nil)
+  }
+}
+
+/// Every tap gets a reply, including the ones that could not be honoured.
+fn declined(
+  out: Outputs,
+  reason: pending.ClaimError,
+  next: Result(#(punch.Punch, clock.TimeOfDay), Nil),
+) -> promise.Promise(Nil) {
+  case out.notify_url {
+    Error(Nil) -> promise.resolve(Nil)
+    Ok(url) -> {
+      let message = notification.from_declined(reason, next)
+      use sent <- promise.await(system.notify(
+        url: url,
+        title: message.title,
+        body: message.body,
+        priority: message.priority,
+        tags: message.tags,
+        attachment: Error(Nil),
+        action: Error(Nil),
+        command_url: out.command_url,
+      ))
+      case sent {
+        Ok(Nil) -> Nil
+        Error(error) ->
+          io.println("acuttis-point: " <> system.error_to_string(error))
+      }
+      promise.resolve(Nil)
+    }
   }
 }
 
