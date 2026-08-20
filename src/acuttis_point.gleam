@@ -82,6 +82,7 @@ pub fn main() -> Nil {
             now: setup.now,
             port: port,
             announced: setup.settings.announced_file,
+            daily_minutes: setup.settings.daily_minutes,
           )
           |> promise.await(fn(inspected) {
             io.println(timesheet.to_line(inspected))

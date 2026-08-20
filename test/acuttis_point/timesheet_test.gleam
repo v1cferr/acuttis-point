@@ -71,11 +71,13 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     now: moment("18:35"),
     port: port(Ok(#(receipt, True))),
     announced: announced,
+    daily_minutes: 503,
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = first
-  assert list.length(audited.inconsistent) == 2
-  assert list.length(fresh) == 2
+  // 05/08 is the oldest day here, so it is not judged: 11/08 is the only finding.
+  assert list.length(audited.inconsistent) == 1
+  assert list.length(fresh) == 1
   // Red, because a day needing an e-mail should not be a green unit.
   assert timesheet.exit_code(first) == 2
 
@@ -88,10 +90,11 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     now: moment("18:35"),
     port: port(Ok(#(receipt, True))),
     announced: announced,
+    daily_minutes: 503,
   ))
 
   let assert timesheet.Audited(audited: still, fresh: [], ..) = again
-  assert list.length(still.inconsistent) == 2
+  assert list.length(still.inconsistent) == 1
   assert timesheet.exit_code(again) == 0
   promise.resolve(Nil)
 }
@@ -114,6 +117,7 @@ pub fn today_is_never_announced_test() {
       )),
     ),
     announced: announced,
+    daily_minutes: 503,
   ))
 
   assert timesheet.exit_code(midday) == 0
@@ -129,19 +133,23 @@ pub fn the_notification_names_the_dates_test() {
     now: moment("18:35"),
     port: port(Ok(#(receipt, True))),
     announced: announced,
+    daily_minutes: 503,
   ))
 
   let message = notification.from_inspection(inspected)
-  assert message.title == "2 dias novos para avisar a GP"
+  assert message.title == "1 dia novo para avisar a GP"
   assert message.priority == "high"
-  // The dates and what is wrong with each, in the words the reply will use.
+  // The date and what is wrong with it, in the words the reply will use.
   assert string.contains(message.body, "11/08/2026: faltando 1 marcação(ões)")
-  assert string.contains(message.body, "05/08/2026: faltando 1 marcação(ões)")
+  // And the month's hours ride along, since that is the other thing worth
+  // knowing at the end of a day.
+  assert string.contains(message.body, "Banco do mês:")
 
-  // And the log carries the lines worth pasting.
+  // And the log carries the line worth pasting. 05/08 is the boundary day here,
+  // so it is not among the findings.
   assert string.contains(
     timesheet.to_text(inspected),
-    "05/08/2026 MISSING(3/4) 08:06 12:55 17:38",
+    "11/08/2026 MISSING(3/4) 08:01 13:43 17:37",
   )
   promise.resolve(Nil)
 }
@@ -164,13 +172,16 @@ pub fn a_clean_history_says_so_quietly_test() {
       )),
     ),
     announced: announced,
+    daily_minutes: 503,
   ))
 
   assert timesheet.exit_code(inspected) == 0
   let message = notification.from_inspection(inspected)
   assert message.title == "Histórico conferido"
   assert message.priority == "low"
-  assert message.body == "todos os dias fecham com 4 marcações"
+  // And the month's hours, which is the other thing worth knowing when the news
+  // is that there is no news.
+  assert message.body == "todos os dias fecham. Banco do mês: +0h07 em 1 dia(s)"
   promise.resolve(Nil)
 }
 
@@ -182,6 +193,7 @@ pub fn a_receipt_that_cannot_be_read_is_not_a_clean_history_test() {
     now: moment("18:35"),
     port: port(Error(browser.InterfaceChanged("#mark_modal"))),
     announced: announced,
+    daily_minutes: 503,
   ))
 
   let assert timesheet.Unreadable(stage:, ..) = inspected
@@ -205,18 +217,22 @@ pub fn already_announced_dates_are_filtered_test() {
     == []
 }
 
-// A receipt that was not read to the end leaves its oldest day alone. Half a day
-// looks like a short day, and an e-mail about a day that was fine is worse than
-// no e-mail: it is the reader learning to distrust the next one.
-pub fn a_truncated_read_does_not_judge_the_oldest_day_test() {
+// The oldest day the receipt shows is never judged, read to the end or not. The
+// receipt stops about three months back, which is far more likely to be as far as
+// Acuttis serves than anyone's first day — and half a day looks like a short day.
+// An e-mail about a day that was fine is worse than no e-mail: it teaches its
+// reader to distrust the next one.
+pub fn the_oldest_day_is_never_judged_test() {
   let announced = clean("truncated")
 
   use inspected <- promise.await(timesheet.inspect(
     secrets: secrets(),
     now: moment("18:35"),
-    // The oldest day here has three markings, which would normally be reported.
-    port: port(Ok(#(receipt, False))),
+    // The oldest day here has three markings, which would otherwise be reported.
+    // Exhausted or not makes no difference.
+    port: port(Ok(#(receipt, True))),
     announced: announced,
+    daily_minutes: 503,
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = inspected
@@ -226,7 +242,8 @@ pub fn a_truncated_read_does_not_judge_the_oldest_day_test() {
   let assert [only] = fresh
   assert clock.date_to_dmy(only.date) == "11/08/2026"
 
-  // And the line says the read was short, rather than passing for a full audit.
-  assert string.contains(timesheet.to_line(inspected), "truncated=true")
+  // And the line names the day it did not judge, rather than leaving that
+  // implicit.
+  assert string.contains(timesheet.to_line(inspected), "unjudged=05/08/2026")
   promise.resolve(Nil)
 }

@@ -11,6 +11,7 @@
 //// notification is a day that has just gone wrong.
 
 import acuttis_point/audit
+import acuttis_point/balance
 import acuttis_point/browser
 import acuttis_point/clock
 import acuttis_point/credentials
@@ -32,6 +33,8 @@ pub type Inspection {
     /// The inconsistent days nobody has been told about yet. Empty is the good
     /// answer, and the common one.
     fresh: List(audit.Day),
+    /// What the month's markings add up to against what it owes.
+    month: balance.Balance,
   )
   Unreadable(at: clock.Instant, stage: report.Stage, detail: String)
 }
@@ -41,6 +44,7 @@ pub fn inspect(
   now now: clock.Instant,
   port port: browser.Port(session),
   announced announced: String,
+  daily_minutes daily_minutes: Int,
 ) -> Promise(Inspection) {
   use opened <- promise.await(port.open())
 
@@ -48,7 +52,14 @@ pub fn inspect(
     Error(error) ->
       promise.resolve(unreadable(now, report.StartingBrowser, error))
     Ok(session) -> {
-      use result <- promise.await(read(secrets, now, port, session, announced))
+      use result <- promise.await(read(
+        secrets,
+        now,
+        port,
+        session,
+        announced,
+        daily_minutes,
+      ))
       use _ <- promise.await(port.close(session))
       promise.resolve(result)
     }
@@ -74,7 +85,7 @@ pub fn to_line(inspection: Inspection) -> String {
       <> "\" reason=\""
       <> string.replace(detail, each: "\"", with: "'")
       <> "\""
-    Audited(at:, audited:, fresh:, exhausted:) ->
+    Audited(at:, audited:, fresh:, exhausted:, month:) ->
       timestamp(at)
       <> " audit=DONE"
       <> case exhausted {
@@ -93,6 +104,14 @@ pub fn to_line(inspection: Inspection) -> String {
           clock.date_to_dmy(oldest) <> ".." <> clock.date_to_dmy(newest)
         Error(Nil) -> "nothing"
       }
+      <> case audit.covered(audited) {
+        // Said out loud rather than left implicit: one day is deliberately not
+        // judged, and a reader should know which.
+        Ok(#(oldest, _)) -> " unjudged=" <> clock.date_to_dmy(oldest)
+        Error(Nil) -> ""
+      }
+      <> " "
+      <> balance.to_line(month)
   }
 }
 
@@ -139,6 +158,7 @@ fn read(
   port: browser.Port(session),
   session: session,
   announced: String,
+  daily_minutes: Int,
 ) -> Promise(Inspection) {
   use signed_in <- promise.await(port.sign_in(session, secrets))
 
@@ -153,12 +173,17 @@ fn read(
         Ok(#(rows, exhausted)) -> {
           let audited =
             audit.audit(rows: rows, today: now.date)
-            |> audit.trusting_the_oldest(exhausted)
+            |> audit.ignoring_the_boundary
           Audited(
             at: now,
             audited: audited,
             exhausted: exhausted,
             fresh: unannounced(audited.inconsistent, already(announced)),
+            month: balance.for_month(
+              days: audited.days,
+              now: now.date,
+              daily_minutes: daily_minutes,
+            ),
           )
         }
       })

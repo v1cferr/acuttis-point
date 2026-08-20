@@ -84,18 +84,27 @@ pub fn audit(rows rows: List(String), today today: clock.Date) -> Audit {
   Audit(days: days, inconsistent: list.filter(days, is_inconsistent))
 }
 
-/// Drop the oldest day from the findings when the receipt was not read to the
-/// end.
+/// Never judge the oldest day the receipt showed.
 ///
 /// A page boundary can fall inside a day, and a day read half way looks like a
-/// short day rather than an incomplete one — or the reverse. Seen on 16/06: a
-/// truncated read showed two markings and called it complete, a full read showed
-/// three. The day stays in `days`, so the count and the coverage still say what
-/// was seen; it just does not get an e-mail written about it.
-pub fn trusting_the_oldest(audited: Audit, exhausted: Bool) -> Audit {
-  case exhausted, list.last(audited.days) {
-    True, _ | _, Error(Nil) -> audited
-    False, Ok(oldest) ->
+/// short day rather than an incomplete one — or the reverse. Seen on 16/06,
+/// which a truncated read showed as two markings and called complete, and a full
+/// read showed as three.
+///
+/// This applies to every read, not only a truncated one, and that correction
+/// came from 26/05: the receipt ends there, about three months back, which is far
+/// more likely to be as far as Acuttis serves than the first day of anyone's
+/// employment. "The list stopped growing" cannot tell those apart, so the last
+/// day visible is always a day that might be cut off.
+///
+/// One day never judged is the price. It buys never writing to Gestão de Pessoas
+/// about a day that only looks wrong because we could not see all of it. The day
+/// stays in `days`, so the count and the coverage still report it — it is the
+/// findings it stays out of.
+pub fn ignoring_the_boundary(audited: Audit) -> Audit {
+  case list.last(audited.days) {
+    Error(Nil) -> audited
+    Ok(oldest) ->
       Audit(
         ..audited,
         inconsistent: list.filter(audited.inconsistent, fn(day) {

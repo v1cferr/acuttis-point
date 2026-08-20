@@ -15,6 +15,7 @@
 //// says more in its own words than in a translation of them.
 
 import acuttis_point/audit
+import acuttis_point/balance
 import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/preflight
@@ -167,35 +168,54 @@ pub fn from_inspection(inspection: timesheet.Inspection) -> Notification {
         "Não consegui conferir o histórico",
         "Falhou " <> ptbr.stage(stage) <> ": " <> detail,
       )
-    timesheet.Audited(fresh: [], audited:, ..) ->
+    timesheet.Audited(fresh: [], audited:, month:, ..) ->
       case audited.inconsistent {
         [] ->
-          quiet("Histórico conferido", "todos os dias fecham com 4 marcações")
+          quiet("Histórico conferido", "todos os dias fecham. " <> hours(month))
         old ->
           quiet(
             "Histórico conferido",
             int.to_string(list.length(old))
-              <> " dia(s) ainda pendente(s) com a GP, nenhum novo",
+              <> " dia(s) ainda pendente(s) com a GP, nenhum novo. "
+              <> hours(month),
           )
       }
-    timesheet.Audited(fresh: days, ..) ->
+    timesheet.Audited(fresh: days, month:, ..) ->
       problem(
         case days {
           [_] -> "1 dia novo para avisar a GP"
           _ ->
             int.to_string(list.length(days)) <> " dias novos para avisar a GP"
         },
-        days
-          |> list.map(fn(day) {
+        list.append(
+          list.map(days, fn(day) {
             clock.date_to_dmy(day.date)
             <> ": "
             <> ptbr.verdict(day.verdict)
             <> " ("
             <> audit.times_to_string(day.times)
             <> ")"
-          })
+          }),
+          [hours(month)],
+        )
           |> string.join("\n"),
       )
+  }
+}
+
+/// The month's hours, in one clause. Says how many days it is measured over,
+/// because a balance over four days and one over twenty mean different things,
+/// and names the days it could not measure rather than hiding them in the sum.
+fn hours(month: balance.Balance) -> String {
+  "Banco do mês: "
+  <> balance.signed(balance.difference(month))
+  <> " em "
+  <> int.to_string(list.length(month.measured))
+  <> " dia(s)"
+  <> case month.unmeasurable {
+    [] -> ""
+    days ->
+      ", fora " <> int.to_string(list.length(days)) <> " sem par para medir"
   }
 }
 

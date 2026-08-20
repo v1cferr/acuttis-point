@@ -61,6 +61,10 @@ pub type Config {
     /// Read the whole receipt and report the days that do not add up. Registers
     /// nothing, clicks no punch control.
     audit: Bool,
+    /// The working day the balance is measured against. Derived from the
+    /// schedule unless set, so there is one place the day's shape is written
+    /// down — but a contract is a contract, and DAILY_MINUTES overrides it.
+    daily_minutes: Int,
     /// The dates already announced, so a day is only reported once. The days
     /// already sent to Gestão de Pessoas stay wrong in Acuttis until they fix
     /// them, and an audit repeating itself every evening teaches its reader to
@@ -190,6 +194,15 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     min_lunch_minutes,
   ))
 
+  use daily_minutes <- result.try(bounded_int(
+    env,
+    "DAILY_MINUTES",
+    nominal_day_minutes(schedule),
+    1,
+    // Twelve hours. Past that it is not a working day being described.
+    720,
+  ))
+
   Ok(Config(
     base_url:,
     work_days:,
@@ -207,6 +220,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     pending_file:,
     claim:,
     audit:,
+    daily_minutes:,
     announced_file:,
     screenshot_dir:,
     proxy_server:,
@@ -239,6 +253,17 @@ fn long_enough_lunch(
       Error(LunchCouldBeTooShort(guaranteed: guaranteed, required: required))
     False -> Ok(schedule)
   }
+}
+
+/// The day the schedule describes: first punch to last, less the break between
+/// them. With entry 07:51, lunch 12:35 to 13:51 and exit 17:30 that is 8h23.
+///
+/// Derived rather than configured by default, so the balance is measured against
+/// the same day the punches are scheduled around instead of a second number that
+/// can quietly disagree with the first.
+pub fn nominal_day_minutes(schedule: Schedule) -> Int {
+  clock.minutes_between(from: schedule.entry, to: schedule.exit)
+  - clock.minutes_between(from: schedule.lunch_start, to: schedule.lunch_end)
 }
 
 pub fn scheduled_time(
