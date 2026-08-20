@@ -8,6 +8,11 @@ pub fn has_content(path: String) -> Bool {
   ffi_size(path) > 0
 }
 
+/// For putting something a run would not have written, to prove it is refused.
+pub fn write(path: String, text: String) -> Nil {
+  ffi_write(path, text)
+}
+
 pub fn remove(path: String) -> Nil {
   ffi_remove(path)
 }
@@ -17,3 +22,6 @@ fn ffi_size(path: String) -> Int
 
 @external(javascript, "./files_ffi.mjs", "remove")
 fn ffi_remove(path: String) -> Nil
+
+@external(javascript, "./files_ffi.mjs", "write")
+fn ffi_write(path: String, text: String) -> Nil

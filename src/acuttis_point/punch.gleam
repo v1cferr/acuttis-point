@@ -22,6 +22,19 @@ pub fn to_string(punch: Punch) -> String {
 }
 
 /// Position in `sequence`, counting from zero.
+/// The inverse of `to_string`, for reading a punch back off disk. Anything else
+/// is refused rather than guessed at: a file that says something unexpected is
+/// not a file to act on.
+pub fn from_string(raw: String) -> Result(Punch, Nil) {
+  case raw {
+    "ENTRY" -> Ok(Entry)
+    "LUNCH_START" -> Ok(LunchStart)
+    "LUNCH_END" -> Ok(LunchEnd)
+    "EXIT" -> Ok(Exit)
+    _ -> Error(Nil)
+  }
+}
+
 pub fn position(punch: Punch) -> Int {
   case punch {
     Entry -> 0

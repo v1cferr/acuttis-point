@@ -1,4 +1,5 @@
-import { rmSync, statSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 export function size(path) {
   try {
@@ -10,4 +11,9 @@ export function size(path) {
 
 export function remove(path) {
   rmSync(path, { force: true, recursive: true });
+}
+
+export function write(path, text) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text);
 }
