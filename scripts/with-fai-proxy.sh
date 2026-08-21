@@ -29,10 +29,18 @@ readonly REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # The ssh destination. A Host block in ~/.ssh/config, or user@address.
 PROXY_SSH_HOST="${PROXY_SSH_HOST:-workstation}"
-# Loopback only: a SOCKS proxy on a reachable address is an open relay.
+# Where to start looking for a free loopback port. Loopback only: a SOCKS proxy
+# on a reachable address is an open relay.
 PROXY_PORT="${PROXY_PORT:-11080}"
 # The VPN unit the host may only be reachable through. Empty never touches it.
 PROXY_VPN_UNIT="${PROXY_VPN_UNIT:-vpn-fai.service}"
+
+# How many ports to consider before giving up.
+readonly PORT_RANGE=40
+
+# How long to wait for another run to finish. A run takes about forty seconds
+# with the VPN to bring up, so this is room for a couple of them queued.
+readonly LOCK_WAIT_SECONDS=180
 
 readonly BINARY="${ACUTTIS_BINARY:-$REPO/state/current/bin/acuttis-point}"
 
@@ -45,10 +53,39 @@ say() {
   echo "with-fai-proxy: $*"
 }
 
+# /dev/tcp rather than nc: this machine's `nc -z` exits silently whatever it
+# finds, which has already been mistaken for a working tunnel once.
+listening_on() {
+  timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null
+}
+
 port_open() {
-  # /dev/tcp rather than nc: this machine's `nc -z` exits silently whatever it
-  # finds, which has already been mistaken for a working tunnel once.
-  timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$PROXY_PORT" 2>/dev/null
+  listening_on "$PROXY_PORT"
+}
+
+# A port of this run's own.
+#
+# Runs overlap by design: a tap arriving five minutes into the window and the
+# reminder scheduled at six are both legitimate, and each needs its own tunnel.
+# With one fixed port the second one died with "already taken", which OnFailure
+# turned into an urgent "Punch run did not start" — sent, on 2026-08-21, four
+# seconds before the punch it was warning about landed. A false alarm about the
+# one thing the notifications exist to be trusted about.
+#
+# The starting point is jittered so two runs beginning together are unlikely to
+# choose the same candidate; if they do anyway, ExitOnForwardFailure makes ssh
+# say so rather than proxying nothing.
+free_port() {
+  local candidate offset
+  offset=$((RANDOM % PORT_RANGE))
+  for ((i = 0; i < PORT_RANGE; i++)); do
+    candidate=$((PROXY_PORT + (offset + i) % PORT_RANGE))
+    listening_on "$candidate" || {
+      echo "$candidate"
+      return 0
+    }
+  done
+  return 1
 }
 
 # BatchMode so a missing key fails instead of waiting for a passphrase nobody
@@ -124,8 +161,27 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM HUP
 
-! port_open ||
-  die "127.0.0.1:$PROXY_PORT is already taken; set PROXY_PORT to something else"
+# One run at a time.
+#
+# Runs overlap by design — a tap five minutes into the window, the reminder at
+# six — and two of them at once fight over more than a port. On 2026-08-21 the
+# first brought the VPN up and stopped it again on the way out, while the second
+# saw the unit "active" with no tunnel yet, concluded the VPN was not what was
+# missing, and gave up. Both failures were reported as urgent, both were noise,
+# and one of them arrived four seconds before the punch it was worried about.
+#
+# So the second run queues instead. If it cannot get in it stands down quietly
+# and exits zero: another run is doing the work, which is not a failure and must
+# not be announced as one.
+mkdir -p "$REPO/state"
+exec 9>"$REPO/state/run.lock"
+if ! flock --wait "$LOCK_WAIT_SECONDS" 9; then
+  say "another run is still going after ${LOCK_WAIT_SECONDS}s, standing down"
+  exit 0
+fi
+
+PROXY_PORT="$(free_port)" ||
+  die "no free loopback port in $PROXY_PORT..$((PROXY_PORT + PORT_RANGE - 1))"
 
 ensure_reachable ||
   die "cannot reach $PROXY_SSH_HOST, so there is no university address to punch from"

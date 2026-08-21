@@ -12,6 +12,7 @@
   iproute2,
   openssh,
   systemd,
+  util-linux,
 }:
 let
   version = "0.1.0";
@@ -123,6 +124,8 @@ stdenvNoCC.mkDerivation {
           iproute2
           openssh
           systemd
+          # flock, which is what keeps two runs from fighting over the tunnel.
+          util-linux
         ]
       }
 
