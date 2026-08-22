@@ -26,3 +26,6 @@ screenshots/
 
 # Estado local: sessão e screenshots (dado pessoal)
 state/
+
+# Internal FAI correspondence: local reference only, never published
+*.eml
