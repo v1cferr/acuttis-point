@@ -66,6 +66,11 @@ type Behaviour {
     open: Result(Nil, browser.BrowserError),
     sign_in: Result(Nil, browser.BrowserError),
     first_read: Result(Nil, browser.BrowserError),
+    /// The read taken immediately before the click, and what it finds there.
+    recheck: Result(Nil, browser.BrowserError),
+    /// Markings that appeared between the decision and the click — the kiosk in
+    /// the building, which this program cannot see coming.
+    appeared_before_click: List(state.Registered),
     register: Result(Nil, browser.BrowserError),
     second_read: Result(Nil, browser.BrowserError),
     records_punch: Bool,
@@ -77,6 +82,8 @@ fn working() -> Behaviour {
     open: Ok(Nil),
     sign_in: Ok(Nil),
     first_read: Ok(Nil),
+    recheck: Ok(Nil),
+    appeared_before_click: [],
     register: Ok(Nil),
     second_read: Ok(Nil),
     records_punch: True,
@@ -112,9 +119,14 @@ fn fake(
           list.count(journal.calls, fn(call) { call == "read_punches" })
         let step = case reads {
           1 -> behaviour.first_read
+          2 -> behaviour.recheck
           _ -> behaviour.second_read
         }
-        promise.resolve(result.map(step, fn(_) { journal.punches }))
+        let seen = case reads {
+          2 -> list.append(journal.punches, behaviour.appeared_before_click)
+          _ -> journal.punches
+        }
+        promise.resolve(result.map(step, fn(_) { seen }))
       },
       register: fn(_session, target) {
         record("register")
@@ -201,8 +213,13 @@ pub fn a_due_punch_is_registered_and_confirmed_test() {
     )
   // The punches are read a second time: the confirmation is observed, not
   // assumed from the click succeeding.
+  // Three reads: one to decide from, one immediately before the click in case
+  // somebody got there first, and one to confirm what landed.
   assert calls(cell)
-    == ["open", "sign_in", "read_punches", "register", "read_punches", "close"]
+    == [
+      "open", "sign_in", "read_punches", "read_punches", "register",
+      "read_punches", "close",
+    ]
   promise.resolve(Nil)
 }
 
@@ -372,7 +389,8 @@ pub fn a_punch_control_that_refuses_fails_at_registration_test() {
         detail: "the punch control is unavailable: the button is disabled",
       ),
     )
-  assert calls(cell) == ["open", "sign_in", "read_punches", "register", "close"]
+  assert calls(cell)
+    == ["open", "sign_in", "read_punches", "read_punches", "register", "close"]
   promise.resolve(Nil)
 }
 
@@ -488,6 +506,48 @@ pub fn a_day_with_more_markings_than_slots_refuses_rather_than_fails_test() {
   assert outcome == report.Refused
   // Exit 2, not 1: red for a human, but not the code that means the tool broke.
   assert report.exit_code(record) == 2
+  assert !list.contains(spy.get(journal).calls, "register")
+  promise.resolve(Nil)
+}
+
+// The kiosk in the building is a device this program cannot see coming. The day
+// is read, a decision is taken, and a few seconds later the click happens — and
+// on 2026-08-19 and 2026-08-20 a marking arrived inside a window like that one,
+// which Acuttis then read as the next transition of the day.
+//
+// So the last thing before the click is another look, and a punch that appeared
+// in the meantime ends the run with nothing done.
+pub fn a_punch_that_appears_before_the_click_stops_it_test() {
+  let sneaked =
+    Behaviour(..working(), appeared_before_click: [
+      state.Registered(punch: punch.Entry, at: at("08:02")),
+    ])
+  use #(record, journal) <- promise.await(go(sneaked, [], "08:03", []))
+
+  let assert report.Decided(decision: chosen, outcome:, registered:, ..) =
+    record
+  assert outcome == report.NothingToDo
+  // The decision on record is the one this check reached, not the one it
+  // replaced.
+  assert chosen
+    == decision.Skip(decision.AlreadyRegistered(
+      punch: punch.Entry,
+      at: at("08:02"),
+    ))
+  assert registered == [state.Registered(punch: punch.Entry, at: at("08:02"))]
+  // And no click at all.
+  assert !list.contains(spy.get(journal).calls, "register")
+  promise.resolve(Nil)
+}
+
+// A read that breaks on the way to the click is a failure of registering, not a
+// silent skip: nothing is known about the day, so nothing may be assumed.
+pub fn a_broken_recheck_fails_rather_than_punching_test() {
+  let blind = Behaviour(..working(), recheck: Error(browser.SessionExpired))
+  use #(record, journal) <- promise.await(go(blind, [], "08:03", []))
+
+  let assert report.Decided(outcome: report.Failed(stage:, ..), ..) = record
+  assert stage == report.RegisteringPunch
   assert !list.contains(spy.get(journal).calls, "register")
   promise.resolve(Nil)
 }

@@ -232,7 +232,54 @@ fn offer(
   }
 }
 
+/// One more look before the click.
+///
+/// The day was read a few seconds ago and a decision was taken from it, and in
+/// between the two somebody can have punched — at the kiosk in the building,
+/// which is a device this program cannot see coming. A few seconds is a small
+/// window, and 2026-08-19 and 2026-08-20 both went wrong inside a window like
+/// it: the punch was made twice and Acuttis read the stray marking as the next
+/// transition of the day.
+///
+/// So the last thing before clicking is a fresh read, and a punch that has
+/// appeared in the meantime ends the run with nothing done. The decision on
+/// record is the one this check reached, not the one it replaced.
 fn register(
+  port: browser.Port(session),
+  session: session,
+  now: clock.Instant,
+  outcome: decision.Outcome,
+  target: punch.Punch,
+) -> Promise(report.Report) {
+  use latest <- promise.await(port.read_punches(session, now.date))
+
+  case latest {
+    Error(error) ->
+      promise.resolve(decided(
+        now,
+        outcome,
+        failed(report.RegisteringPunch, error),
+      ))
+    Ok(current) ->
+      case state.registered_at(current, target) {
+        // Somebody got there first, between the decision and the click.
+        Ok(at) ->
+          promise.resolve(report.Decided(
+            at: now,
+            state: outcome.state,
+            decision: decision.Skip(decision.AlreadyRegistered(
+              punch: target,
+              at: at,
+            )),
+            registered: current,
+            outcome: report.NothingToDo,
+          ))
+        Error(Nil) -> click(port, session, now, outcome, target)
+      }
+  }
+}
+
+fn click(
   port: browser.Port(session),
   session: session,
   now: clock.Instant,

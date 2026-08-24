@@ -42,6 +42,31 @@ readonly PORT_RANGE=40
 # with the VPN to bring up, so this is room for a couple of them queued.
 readonly LOCK_WAIT_SECONDS=180
 
+# How many times to try the host before reaching for the VPN. The host is
+# normally reachable without it; on 2026-08-24 a single transient ssh failure at
+# 07:36 sent the run down the VPN path, pppd died with code 16, and the run spent
+# eleven minutes failing. A retry costs seconds and would have cost none of that.
+readonly SSH_ATTEMPTS=3
+
+# The whole VPN attempt, bounded. It used to be thirty rounds of a five second
+# ssh, which is minutes rather than seconds — and a punch window is ten minutes
+# long. Better to give up early and punch from here than to spend the window
+# waiting.
+readonly VPN_WAIT_SECONDS=45
+
+# What to do when there is no tunnel: punch from this machine anyway, or refuse.
+#
+# `direct` by default, and that is a change of mind with a morning behind it. The
+# original reasoning was that a punch from the wrong address is worse than no
+# punch. It is not: a missing punch means an e-mail to Gestão de Pessoas and a
+# time reconstructed from memory, while a punch from home has never been
+# questioned — and the markings already arrive from a phone, a browser and the
+# kiosk in the building, so one more origin is not an anomaly. Today the
+# fail-closed rule cost a punch and it had to be made by hand.
+#
+# It is never silent: falling back says so on the phone, before the punch.
+PROXY_FALLBACK="${PROXY_FALLBACK:-direct}"
+
 readonly BINARY="${ACUTTIS_BINARY:-$REPO/state/current/bin/acuttis-point}"
 
 die() {
@@ -113,8 +138,19 @@ vpn_started_here=false
 # university address that this machine may only have a route to through the VPN,
 # and turning that on is a change to the whole system — so it happens only when
 # it is the difference between a punch and no punch, and it is undone after.
+reachable() {
+  ssh_quiet -o ConnectTimeout=7 -o ConnectionAttempts=1 "$PROXY_SSH_HOST" true \
+    2>/dev/null
+}
+
 ensure_reachable() {
-  ssh_quiet -o ConnectTimeout=7 "$PROXY_SSH_HOST" true 2>/dev/null && return 0
+  # Retried before escalating: the host is normally reachable without the VPN,
+  # and one bad moment should not turn into a VPN dialling sequence.
+  for attempt in $(seq 1 "$SSH_ATTEMPTS"); do
+    reachable && return 0
+    ((attempt < SSH_ATTEMPTS)) && sleep 3
+  done
+
   [[ -n "$PROXY_VPN_UNIT" ]] || return 1
 
   case "$(systemctl show "$PROXY_VPN_UNIT" -p ActiveState --value 2>/dev/null)" in
@@ -128,15 +164,35 @@ ensure_reachable() {
   vpn_started_here=true
 
   # The unit goes active before the tunnel exists, so what is waited on is the
-  # interface, not the unit.
-  for _ in $(seq 1 30); do
-    if [[ -n "$(ip -o link show type ppp 2>/dev/null)" ]] &&
-      ssh_quiet -o ConnectTimeout=5 "$PROXY_SSH_HOST" true 2>/dev/null; then
+  # interface, not the unit. Bounded by the clock rather than by a round count,
+  # because what matters is how much of the punch window is left.
+  local deadline=$((SECONDS + VPN_WAIT_SECONDS))
+  while ((SECONDS < deadline)); do
+    if [[ -n "$(ip -o link show type ppp 2>/dev/null)" ]] && reachable; then
       return 0
     fi
-    sleep 2
+    sleep 3
   done
   return 1
+}
+
+# Say something on the phone from out here, for the one case the program cannot
+# report: it is about to run, or not, in a way the program does not know about.
+warn_phone() {
+  # The environment wins over the file, the same way it does for the program, so
+  # a test run can be silenced with NOTIFY_URL= rather than by editing anything.
+  local url="${NOTIFY_URL-}"
+  if [[ -z "${NOTIFY_URL+set}" ]]; then
+    url="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?NOTIFY_URL[[:space:]]*=[[:space:]]*//p" \
+      "${ENV_FILE:-$REPO/.env}" 2>/dev/null | tail -1)"
+  fi
+  [[ -n "$url" ]] || return 0
+  curl --silent --show-error --max-time 15 \
+    --header "Title: $1" \
+    --header "Priority: 4" \
+    --header "Tags: warning" \
+    --data-binary "$2" \
+    "$url" >/dev/null || true
 }
 
 ssh_pid=""
@@ -183,8 +239,28 @@ fi
 PROXY_PORT="$(free_port)" ||
   die "no free loopback port in $PROXY_PORT..$((PROXY_PORT + PORT_RANGE - 1))"
 
-ensure_reachable ||
-  die "cannot reach $PROXY_SSH_HOST, so there is no university address to punch from"
+proxied=true
+if ! ensure_reachable; then
+  case "$PROXY_FALLBACK" in
+  direct)
+    # Losing the address is a nuisance; losing the punch is a correction e-mail.
+    say "no tunnel to $PROXY_SSH_HOST, going out from this machine instead"
+    warn_phone "Sem túnel da FAI" \
+      "Não consegui alcançar $PROXY_SSH_HOST, então o ponto vai sair pelo IP daqui. O ponto acontece; só o endereço fica diferente."
+    proxied=false
+    ;;
+  *)
+    die "cannot reach $PROXY_SSH_HOST, so there is no university address to punch from"
+    ;;
+  esac
+fi
+
+if [[ "$proxied" == false ]]; then
+  [[ -x "$BINARY" ]] ||
+    die "no runnable binary at $BINARY; run nix build --out-link state/current"
+  "$BINARY" "$@"
+  exit $?
+fi
 
 # ExitOnForwardFailure so ssh gives up rather than sitting there with nothing
 # listening, which would leave a proxy that accepts no connections.
