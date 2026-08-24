@@ -45,6 +45,7 @@ pub fn inspect(
   port port: browser.Port(session),
   announced announced: String,
   daily_minutes daily_minutes: Int,
+  limit_minutes limit_minutes: Int,
 ) -> Promise(Inspection) {
   use opened <- promise.await(port.open())
 
@@ -59,6 +60,7 @@ pub fn inspect(
         session,
         announced,
         daily_minutes,
+        limit_minutes,
       ))
       use _ <- promise.await(port.close(session))
       promise.resolve(result)
@@ -159,6 +161,7 @@ fn read(
   session: session,
   announced: String,
   daily_minutes: Int,
+  limit_minutes: Int,
 ) -> Promise(Inspection) {
   use signed_in <- promise.await(port.sign_in(session, secrets))
 
@@ -183,6 +186,7 @@ fn read(
               days: audited.days,
               now: now.date,
               daily_minutes: daily_minutes,
+              limit_minutes: limit_minutes,
             ),
           )
         }

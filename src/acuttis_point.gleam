@@ -85,6 +85,7 @@ pub fn main() -> Nil {
             port: port,
             announced: setup.settings.announced_file,
             daily_minutes: setup.settings.daily_minutes,
+            limit_minutes: setup.settings.compensation_limit_minutes,
           )
           |> promise.await(fn(inspected) {
             io.println(timesheet.to_line(inspected))

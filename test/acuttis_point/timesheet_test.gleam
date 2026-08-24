@@ -72,6 +72,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     port: port(Ok(#(receipt, True))),
     announced: announced,
     daily_minutes: 503,
+    limit_minutes: 2400,
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = first
@@ -91,6 +92,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     port: port(Ok(#(receipt, True))),
     announced: announced,
     daily_minutes: 503,
+    limit_minutes: 2400,
   ))
 
   let assert timesheet.Audited(audited: still, fresh: [], ..) = again
@@ -118,6 +120,7 @@ pub fn today_is_never_announced_test() {
     ),
     announced: announced,
     daily_minutes: 503,
+    limit_minutes: 2400,
   ))
 
   assert timesheet.exit_code(midday) == 0
@@ -134,6 +137,7 @@ pub fn the_notification_names_the_dates_test() {
     port: port(Ok(#(receipt, True))),
     announced: announced,
     daily_minutes: 503,
+    limit_minutes: 2400,
   ))
 
   let message = notification.from_inspection(inspected)
@@ -173,6 +177,7 @@ pub fn a_clean_history_says_so_quietly_test() {
     ),
     announced: announced,
     daily_minutes: 503,
+    limit_minutes: 2400,
   ))
 
   assert timesheet.exit_code(inspected) == 0
@@ -194,6 +199,7 @@ pub fn a_receipt_that_cannot_be_read_is_not_a_clean_history_test() {
     port: port(Error(browser.InterfaceChanged("#mark_modal"))),
     announced: announced,
     daily_minutes: 503,
+    limit_minutes: 2400,
   ))
 
   let assert timesheet.Unreadable(stage:, ..) = inspected
@@ -233,6 +239,7 @@ pub fn the_oldest_day_is_never_judged_test() {
     port: port(Ok(#(receipt, True))),
     announced: announced,
     daily_minutes: 503,
+    limit_minutes: 2400,
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = inspected

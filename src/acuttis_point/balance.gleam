@@ -41,6 +41,10 @@ pub type Balance {
     unmeasurable: List(DayHours),
     worked_minutes: Int,
     owed_minutes: Int,
+    /// The most the bank may hold in either direction — what FAI calls the
+    /// limite de compensação. Reported rather than enforced: nothing here can
+    /// stop hours accumulating, and the number that counts is on their folha.
+    limit_minutes: Int,
   )
 }
 
@@ -53,6 +57,7 @@ pub fn for_month(
   days days: List(audit.Day),
   now now: clock.Date,
   daily_minutes daily_minutes: Int,
+  limit_minutes limit_minutes: Int,
 ) -> Balance {
   let this_month =
     days
@@ -91,7 +96,24 @@ pub fn for_month(
       }
     }),
     owed_minutes: list.length(measured) * daily_minutes,
+    limit_minutes: limit_minutes,
   )
+}
+
+/// How much of the compensation limit this month has not used, in minutes.
+///
+/// Only this month: the limit is on the bank as a whole, and the bank runs
+/// further back than the receipt serves. So this is a floor on how much room is
+/// left, never the answer — the folha at the end of the month is.
+pub fn room_left(balance: Balance) -> Int {
+  let used = case difference(balance) < 0 {
+    True -> -difference(balance)
+    False -> difference(balance)
+  }
+  case balance.limit_minutes - used < 0 {
+    True -> 0
+    False -> balance.limit_minutes - used
+  }
 }
 
 /// Worked minus owed. Positive is credit, negative is a debt.
@@ -129,6 +151,8 @@ pub fn to_line(balance: Balance) -> String {
   <> duration(balance.daily_minutes)
   <> " unmeasurable="
   <> int.to_string(list.length(balance.unmeasurable))
+  <> " limit="
+  <> duration(balance.limit_minutes)
 }
 
 /// Consecutive markings, paired: in to out, then in to out again. An odd count

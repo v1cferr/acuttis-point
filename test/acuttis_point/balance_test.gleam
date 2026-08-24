@@ -31,6 +31,7 @@ pub fn a_day_is_the_sum_of_its_pairs_test() {
       days: audited(rows, "2026-08-20"),
       now: day("2026-08-20"),
       daily_minutes: daily,
+      limit_minutes: 2400,
     )
 
   assert found.worked_minutes == 4 * 60 + 34 + 3 * 60 + 52
@@ -55,6 +56,7 @@ pub fn a_day_without_markings_owes_nothing_test() {
       days: audited(rows, "2026-08-20"),
       now: day("2026-08-20"),
       daily_minutes: daily,
+      limit_minutes: 2400,
     )
 
   // One day measured, one day owed, whatever else the month contains.
@@ -80,6 +82,7 @@ pub fn a_day_that_does_not_pair_up_is_not_measured_test() {
       days: audited(rows, "2026-08-20"),
       now: day("2026-08-20"),
       daily_minutes: daily,
+      limit_minutes: 2400,
     )
 
   assert list.length(found.measured) == 1
@@ -102,6 +105,7 @@ pub fn today_is_not_counted_test() {
       days: audited(rows, "2026-08-20"),
       now: day("2026-08-20"),
       daily_minutes: daily,
+      limit_minutes: 2400,
     )
 
   assert found.measured == []
@@ -126,6 +130,7 @@ pub fn only_the_current_month_counts_test() {
       days: audited(rows, "2026-08-20"),
       now: day("2026-08-20"),
       daily_minutes: daily,
+      limit_minutes: 2400,
     )
 
   assert list.length(found.measured) == 1
@@ -145,6 +150,7 @@ pub fn a_short_day_shows_as_a_deficit_test() {
       days: audited(rows, "2026-06-20"),
       now: day("2026-06-20"),
       daily_minutes: daily,
+      limit_minutes: 2400,
     )
 
   assert balance.duration(found.worked_minutes) == "3h00"
@@ -157,4 +163,32 @@ pub fn a_balance_of_zero_still_has_a_sign_test() {
   assert balance.signed(-1) == "-0h01"
   assert balance.signed(65) == "+1h05"
   assert balance.duration(503) == "8h23"
+}
+
+// FAI calls it the limite de compensação: forty hours either way. Reported, not
+// enforced — nothing here can stop hours accumulating, and the number that counts
+// is on their folha at the end of the month.
+pub fn the_compensation_limit_is_reported_test() {
+  let rows = [
+    "18/08/2026 Ter - 08:17location_on",
+    "18/08/2026 Ter - 12:51location_on",
+    "18/08/2026 Ter - 13:51location_on",
+    "18/08/2026 Ter - 17:43location_on",
+  ]
+  // Eight hours owed against 8h26 worked: twenty six minutes of credit.
+  let found =
+    balance.for_month(
+      days: audited(rows, "2026-08-20"),
+      now: day("2026-08-20"),
+      daily_minutes: 480,
+      limit_minutes: 2400,
+    )
+
+  assert balance.signed(balance.difference(found)) == "+0h26"
+  assert balance.duration(balance.room_left(found)) == "39h34"
+
+  // A month already past the limit leaves no room rather than negative room.
+  let over =
+    balance.Balance(..found, worked_minutes: 480 + 3000, owed_minutes: 480)
+  assert balance.room_left(over) == 0
 }

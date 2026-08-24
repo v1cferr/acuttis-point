@@ -65,6 +65,10 @@ pub type Config {
     /// schedule unless set, so there is one place the day's shape is written
     /// down — but a contract is a contract, and DAILY_MINUTES overrides it.
     daily_minutes: Int,
+    /// The most the hour bank may hold either way — FAI calls it the limite de
+    /// compensação, and it is 40 hours. Reported, not enforced: nothing here can
+    /// stop hours accumulating.
+    compensation_limit_minutes: Int,
     /// The dates already announced, so a day is only reported once. The days
     /// already sent to Gestão de Pessoas stay wrong in Acuttis until they fix
     /// them, and an audit repeating itself every evening teaches its reader to
@@ -128,6 +132,9 @@ const default_timeout_seconds = 30
 const default_pending_file = "state/pending.json"
 
 const default_announced_file = "state/announced.txt"
+
+/// Forty hours, which is FAI's limite de compensação.
+const default_compensation_limit_minutes = 2400
 
 /// One hour, which is the legal minimum in Brazil for a working day over six
 /// hours. A floor rather than a default to aim at.
@@ -194,6 +201,14 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     min_lunch_minutes,
   ))
 
+  use compensation_limit_minutes <- result.try(bounded_int(
+    env,
+    "COMPENSATION_LIMIT_MINUTES",
+    default_compensation_limit_minutes,
+    0,
+    // A thousand hours. Past that it is not a compensation limit.
+    60_000,
+  ))
   use daily_minutes <- result.try(bounded_int(
     env,
     "DAILY_MINUTES",
@@ -221,6 +236,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     claim:,
     audit:,
     daily_minutes:,
+    compensation_limit_minutes:,
     announced_file:,
     screenshot_dir:,
     proxy_server:,
