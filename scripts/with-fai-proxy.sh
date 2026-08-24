@@ -42,6 +42,14 @@ readonly PORT_RANGE=40
 # with the VPN to bring up, so this is room for a couple of them queued.
 readonly LOCK_WAIT_SECONDS=180
 
+# Only for the runs that can actually register something. An ask, a reminder, a
+# rehearsal and an audit all read and none of them punch, so which address they
+# read from is nobody's business — and while FAI's portal is down, warning about
+# each of them would be a dozen alarms a day for a thing that did not happen.
+can_punch() {
+  [[ -n "${CLAIM_TOKEN:-}" || "${CLAIM_DEADLINE:-}" == "true" ]]
+}
+
 # How many times to try the host when there is a tunnel to try it through. Only
 # then: measured on 2026-08-24, the host is not reachable without the VPN at all,
 # so retrying while there is no ppp interface spends thirty seconds proving what
@@ -126,7 +134,7 @@ free_port() {
 readonly SSH_OPTS=(
   -o BatchMode=yes
   -o ControlPath=none
-  -o ConnectTimeout=10
+  -o ConnectTimeout=20
 )
 
 ssh_quiet() {
@@ -139,8 +147,16 @@ vpn_started_here=false
 # university address that this machine may only have a route to through the VPN,
 # and turning that on is a change to the whole system — so it happens only when
 # it is the difference between a punch and no punch, and it is undone after.
+# Twenty seconds, not seven.
+#
+# Seven was a guess and it was wrong in the direction that matters. With the
+# tunnel up, its address assigned and ICMP flowing, ssh still reported
+# "Connection timed out" at seven and connected fine at fifteen — the first SYN
+# through the SonicWall takes longer than a local link would, and a retransmit
+# lands somewhere past the old limit. The result was the fallback firing on a
+# tunnel that worked, which is the opposite of the stated priority.
 reachable() {
-  ssh_quiet -o ConnectTimeout=7 -o ConnectionAttempts=1 "$PROXY_SSH_HOST" true \
+  ssh_quiet -o ConnectTimeout=20 -o ConnectionAttempts=1 "$PROXY_SSH_HOST" true \
     2>/dev/null
 }
 
@@ -246,14 +262,24 @@ fi
 PROXY_PORT="$(free_port)" ||
   die "no free loopback port in $PROXY_PORT..$((PROXY_PORT + PORT_RANGE - 1))"
 
+checking=false
+[[ "${1:-}" == "--check" ]] && checking=true
+
 proxied=true
 if ! ensure_reachable; then
+  if [[ "$checking" == true ]]; then
+    say "no tunnel to $PROXY_SSH_HOST; a run right now would go out from here"
+    exit 1
+  fi
+
   case "$PROXY_FALLBACK" in
   direct)
     # Losing the address is a nuisance; losing the punch is a correction e-mail.
     say "no tunnel to $PROXY_SSH_HOST, going out from this machine instead"
-    warn_phone "Sem túnel da FAI" \
-      "Não consegui alcançar $PROXY_SSH_HOST, então o ponto vai sair pelo IP daqui. O ponto acontece; só o endereço fica diferente."
+    if can_punch; then
+      warn_phone "Sem túnel da FAI" \
+        "Não consegui alcançar $PROXY_SSH_HOST, então este ponto vai sair pelo IP daqui. O ponto acontece; só o endereço fica diferente."
+    fi
     proxied=false
     ;;
   *)
@@ -262,6 +288,8 @@ if ! ensure_reachable; then
   esac
 fi
 
+# Without a tunnel there is nothing left to set up, so the run happens here.
+# `--check` never reaches this: it has already reported and exited above.
 if [[ "$proxied" == false ]]; then
   [[ -x "$BINARY" ]] ||
     die "no runnable binary at $BINARY; run nix build --out-link state/current"
