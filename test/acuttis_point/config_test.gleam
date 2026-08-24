@@ -299,3 +299,49 @@ pub fn error_to_string_is_actionable_test() {
     ))
     == "LUNCH_START is scheduled before ENTRY"
 }
+
+// FAI's rule: no period may run more than five consecutive hours. Their own
+// folha shows it exceeded twice in July and credited in full, so the system does
+// not block it — the coordinator watches. But a schedule that CAN breach it will,
+// and configuration time is the cheapest place to find out.
+//
+// This would have refused the lunch at 12:45 that was chosen on 2026-08-24, and
+// accepted the 12:40 that replaced it.
+pub fn a_schedule_that_could_run_over_five_hours_is_refused_test() {
+  let with_lunch_at = fn(at) {
+    config.from_env(
+      env([
+        #("ENTRY_TIME", "07:51"),
+        #("LUNCH_START", at),
+        #("LUNCH_END", "13:55"),
+        #("EXIT_TIME", "17:45"),
+      ]),
+    )
+  }
+
+  // 07:51 to 12:45 is 4h54, and ten minutes of tolerance makes 5h04.
+  assert with_lunch_at("12:45")
+    == Error(config.StretchCouldBeTooLong(
+      period: "morning",
+      worst: 304,
+      allowed: 300,
+    ))
+
+  // 12:40 leaves the worst case at 4h59, with a minute to spare.
+  let assert Ok(_) = with_lunch_at("12:40")
+
+  // The afternoon is checked the same way: 13:55 to 19:00 could run 5h15.
+  assert config.from_env(
+      env([
+        #("ENTRY_TIME", "07:51"),
+        #("LUNCH_START", "12:40"),
+        #("LUNCH_END", "13:55"),
+        #("EXIT_TIME", "19:00"),
+      ]),
+    )
+    == Error(config.StretchCouldBeTooLong(
+      period: "afternoon",
+      worst: 315,
+      allowed: 300,
+    ))
+}

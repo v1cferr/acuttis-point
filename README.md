@@ -132,6 +132,48 @@ a scheduled time a punch may still be registered. It is also what makes a
 catch-up run safe after the machine was asleep — a run that wakes up too late
 refuses to punch instead of inventing a time.
 
+### The hour bank, by their rules
+
+The bank is not arithmetic of one's own, and finding that out cost a wrong number
+reported for days. FAI's sheet sets the rules and their folha for July 2026 is the
+test — this reproduces it to the minute, eleven days and all three totals.
+
+```
+1. worked          = the paired intervals of the day
+2. short lunch     = the shortfall deducted from the day
+3. deviation       = worked, net, minus the contractual day
+4. |deviation| <= tolerance  → nothing reaches the bank, either direction
+5. past that       → the WHOLE deviation banks, not the part above it
+```
+
+Rule 4 is the one that is easy to get wrong twice over. Ten minutes exactly is
+nothing: 24/07 worked 8h10 and was credited none of it. Eleven minutes is eleven,
+not one.
+
+Rule 2 is why 30/07 was credited thirty minutes and not thirty-seven — a lunch of
+fifty-three minutes cost the seven it was short.
+
+The contractual day is `DAILY_MINUTES`, stated rather than derived. Derived from
+the schedule, as it once was, a longer schedule raises the bar with it and working
+more can never show as credit.
+
+Two of their rules are reported and never applied, because the sheet treats them
+as monitored rather than automatic — their own folha shows 27/07 at 5h01 and 30/07
+at 5h03 credited in full:
+
+* no period may run more than five consecutive hours
+* no weekday may carry more than two hours of compensation
+
+The first one is also a startup check on the schedule, against the worst case: a
+period opening on time and closing as late as the tolerance allows. It refuses a
+lunch at 12:45 after an entry at 07:51, which is 5h04, and accepts 12:40, which is
+4h59. A schedule that can produce a breach will produce one, and configuration
+time is cheaper than a conversation with a coordinator.
+
+What none of this can see is Gestão de Pessoas' adjustments, which by their own
+document never appear in the history. A day they have corrected still reads here
+as it was punched, so the number is a floor.
+
 ### One token, spendable once
 
 Two things want to punch: a tap on the notification, and the deadline that covers

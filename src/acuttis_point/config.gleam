@@ -114,6 +114,9 @@ pub type ConfigError {
   ScheduleOutOfOrder(earlier: punch.Punch, later: punch.Punch)
   /// The schedule could produce a lunch break shorter than allowed.
   LunchCouldBeTooShort(guaranteed: Int, required: Int)
+  /// The schedule could produce a stretch of work longer than allowed without a
+  /// break.
+  StretchCouldBeTooLong(period: String, worst: Int, allowed: Int)
   /// Both ways of claiming at once. Refused rather than resolved, because the
   /// two mean different things and guessing which was meant could punch.
   ConflictingClaim
@@ -135,6 +138,10 @@ const default_announced_file = "state/announced.txt"
 
 /// Forty hours, which is FAI's limite de compensação.
 const default_compensation_limit_minutes = 2400
+
+/// Five hours, which is FAI's limit on working without a break: "garantir que a
+/// carga de trabalho não exceda 5 horas consecutivas em ambos os períodos".
+const default_max_consecutive_minutes = 300
 
 /// One hour, which is the legal minimum in Brazil for a working day over six
 /// hours. A floor rather than a default to aim at.
@@ -191,6 +198,13 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use proxy_server <- result.try(proxy(env, "PROXY_SERVER"))
   let screenshot_dir = optional(env, "SCREENSHOT_DIR")
 
+  use max_consecutive_minutes <- result.try(bounded_int(
+    env,
+    "MAX_CONSECUTIVE_MINUTES",
+    default_max_consecutive_minutes,
+    60,
+    720,
+  ))
   let timezone = lookup_or(env, "TIMEZONE", default_timezone)
   use schedule <- result.try(
     ordered_schedule(Schedule(entry:, lunch_start:, lunch_end:, exit:)),
@@ -199,6 +213,11 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     schedule,
     tolerance_minutes,
     min_lunch_minutes,
+  ))
+  use schedule <- result.try(short_enough_stretches(
+    schedule,
+    tolerance_minutes,
+    max_consecutive_minutes,
   ))
 
   use compensation_limit_minutes <- result.try(bounded_int(
@@ -280,6 +299,46 @@ fn long_enough_lunch(
 pub fn nominal_day_minutes(schedule: Schedule) -> Int {
   clock.minutes_between(from: schedule.entry, to: schedule.exit)
   - clock.minutes_between(from: schedule.lunch_start, to: schedule.lunch_end)
+}
+
+/// The longest either period could run, and a refusal when that is too long.
+///
+/// The worst case is the punch opening a period landing on time and the one
+/// closing it landing as late as the tolerance allows. FAI treats five
+/// consecutive hours as a limit the coordinator monitors rather than one the
+/// system blocks — their own folha shows 27/07 at 5h01 and 30/07 at 5h03,
+/// credited in full — but a schedule that can produce a breach will produce one,
+/// and configuration time is the cheapest place to find that out.
+///
+/// It would have refused a lunch at 12:45 against an entry at 07:51: 5h04 in the
+/// worst case. At 12:40 the worst case is 4h59.
+fn short_enough_stretches(
+  schedule: Schedule,
+  tolerance_minutes: Int,
+  allowed: Int,
+) -> Result(Schedule, ConfigError) {
+  let morning =
+    clock.minutes_between(from: schedule.entry, to: schedule.lunch_start)
+    + tolerance_minutes
+  let afternoon =
+    clock.minutes_between(from: schedule.lunch_end, to: schedule.exit)
+    + tolerance_minutes
+
+  case morning > allowed, afternoon > allowed {
+    True, _ ->
+      Error(StretchCouldBeTooLong(
+        period: "morning",
+        worst: morning,
+        allowed: allowed,
+      ))
+    _, True ->
+      Error(StretchCouldBeTooLong(
+        period: "afternoon",
+        worst: afternoon,
+        allowed: allowed,
+      ))
+    _, _ -> Ok(schedule)
+  }
 }
 
 pub fn scheduled_time(
@@ -370,6 +429,14 @@ pub fn error_to_string(error: ConfigError) -> String {
     EmptyValue(key:) -> key <> " is empty"
     InsecureUrl(key:, value:) ->
       key <> "=" <> value <> " must be an https:// url"
+    StretchCouldBeTooLong(period:, worst:, allowed:) ->
+      "this schedule could have you working "
+      <> int.to_string(worst)
+      <> " minutes straight in the "
+      <> period
+      <> ", over the "
+      <> int.to_string(allowed)
+      <> " allowed; move a lunch punch, or raise MAX_CONSECUTIVE_MINUTES"
     ConflictingClaim ->
       "CLAIM_TOKEN and CLAIM_DEADLINE are both set, and they mean different"
       <> " things; use one"

@@ -188,6 +188,22 @@ in
       '';
     };
 
+    maxConsecutiveMinutes = lib.mkOption {
+      type = lib.types.ints.between 60 720;
+      default = 300;
+      description = ''
+        The longest either period may run without a break. Five hours is FAI's
+        rule — "garantir que a carga de trabalho não exceda 5 horas consecutivas
+        em ambos os períodos".
+
+        Checked against the worst case, which is a period opening on time and
+        closing as late as `toleranceMinutes` allows. Their system does not block
+        a breach and their own folha shows two of them credited in full, but a
+        schedule that can produce one will, and this is the cheapest place to
+        find out.
+      '';
+    };
+
     proxySshHost = lib.mkOption {
       type = lib.types.nullOr lib.types.nonEmptyStr;
       default = null;
@@ -373,6 +389,24 @@ in
           (${toString cfg.preflightLeadMinutes}) reaches back past midnight from
           schedule.entry (${cfg.schedule.entry}), so the first rehearsal would
           fall on the day before the punch it is rehearsing. Shorten the lead.
+        '';
+      }
+      {
+        assertion =
+          let
+            worst =
+              period:
+              minutes (builtins.elemAt period 1) - minutes (builtins.elemAt period 0)
+              + cfg.toleranceMinutes;
+          in
+          worst [ cfg.schedule.entry cfg.schedule.lunchStart ] <= cfg.maxConsecutiveMinutes
+          && worst [ cfg.schedule.lunchEnd cfg.schedule.exit ] <= cfg.maxConsecutiveMinutes;
+        message = ''
+          services.acuttis-point: this schedule could have you working more than
+          maxConsecutiveMinutes (${toString cfg.maxConsecutiveMinutes}) straight.
+          The worst case is a period opening on time and closing as late as
+          toleranceMinutes allows. FAI's rule is five hours per period; move a
+          lunch punch, or raise maxConsecutiveMinutes.
         '';
       }
       {
