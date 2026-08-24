@@ -42,10 +42,11 @@ readonly PORT_RANGE=40
 # with the VPN to bring up, so this is room for a couple of them queued.
 readonly LOCK_WAIT_SECONDS=180
 
-# How many times to try the host before reaching for the VPN. The host is
-# normally reachable without it; on 2026-08-24 a single transient ssh failure at
-# 07:36 sent the run down the VPN path, pppd died with code 16, and the run spent
-# eleven minutes failing. A retry costs seconds and would have cost none of that.
+# How many times to try the host when there is a tunnel to try it through. Only
+# then: measured on 2026-08-24, the host is not reachable without the VPN at all,
+# so retrying while there is no ppp interface spends thirty seconds proving what
+# the absence of the interface already said. A retry is for a tunnel that is up
+# and briefly unhappy.
 readonly SSH_ATTEMPTS=3
 
 # The whole VPN attempt, bounded. It used to be thirty rounds of a five second
@@ -143,13 +144,19 @@ reachable() {
     2>/dev/null
 }
 
+tunnel_exists() {
+  [[ -n "$(ip -o link show type ppp 2>/dev/null)" ]]
+}
+
 ensure_reachable() {
-  # Retried before escalating: the host is normally reachable without the VPN,
-  # and one bad moment should not turn into a VPN dialling sequence.
-  for attempt in $(seq 1 "$SSH_ATTEMPTS"); do
-    reachable && return 0
-    ((attempt < SSH_ATTEMPTS)) && sleep 3
-  done
+  # With an interface up, a failure can be a bad moment, so it is retried. With
+  # no interface there is nothing to retry through.
+  if tunnel_exists || [[ -z "$PROXY_VPN_UNIT" ]]; then
+    for attempt in $(seq 1 "$SSH_ATTEMPTS"); do
+      reachable && return 0
+      ((attempt < SSH_ATTEMPTS)) && sleep 3
+    done
+  fi
 
   [[ -n "$PROXY_VPN_UNIT" ]] || return 1
 
@@ -168,7 +175,7 @@ ensure_reachable() {
   # because what matters is how much of the punch window is left.
   local deadline=$((SECONDS + VPN_WAIT_SECONDS))
   while ((SECONDS < deadline)); do
-    if [[ -n "$(ip -o link show type ppp 2>/dev/null)" ]] && reachable; then
+    if tunnel_exists && reachable; then
       return 0
     fi
     sleep 3
