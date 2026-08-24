@@ -275,6 +275,20 @@ fn hours(month: balance.Balance) -> String {
     days ->
       ", fora " <> int.to_string(list.length(days)) <> " sem par para medir"
   }
+  <> ". Sobram "
+  <> balance.duration(balance.room_left(month))
+  <> " do limite de "
+  <> balance.duration(month.limit_minutes)
+  // Days that broke a rule other than the hours: over five consecutive hours, or
+  // more compensation in one day than a weekday may carry. Named because the
+  // document calls them monitored, which means somebody is looking.
+  <> case balance.irregular(month) {
+    [] -> ""
+    over ->
+      ". Atenção: "
+      <> int.to_string(list.length(over))
+      <> " dia(s) passaram de 5h seguidas ou de 2h de compensação"
+  }
 }
 
 /// What a decision was about, in the words Gestão de Pessoas uses.

@@ -85,6 +85,8 @@ pub fn main() -> Nil {
             port: port,
             announced: setup.settings.announced_file,
             daily_minutes: setup.settings.daily_minutes,
+            tolerance_minutes: setup.settings.tolerance_minutes,
+            min_lunch_minutes: setup.settings.min_lunch_minutes,
             limit_minutes: setup.settings.compensation_limit_minutes,
           )
           |> promise.await(fn(inspected) {
