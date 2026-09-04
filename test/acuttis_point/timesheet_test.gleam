@@ -75,6 +75,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    carried: Error(Nil),
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = first
@@ -97,6 +98,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    carried: Error(Nil),
   ))
 
   let assert timesheet.Audited(audited: still, fresh: [], ..) = again
@@ -127,6 +129,7 @@ pub fn today_is_never_announced_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    carried: Error(Nil),
   ))
 
   assert timesheet.exit_code(midday) == 0
@@ -146,6 +149,7 @@ pub fn the_notification_names_the_dates_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    carried: Error(Nil),
   ))
 
   let message = notification.from_inspection(inspected)
@@ -188,6 +192,7 @@ pub fn a_clean_history_says_so_quietly_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    carried: Error(Nil),
   ))
 
   assert timesheet.exit_code(inspected) == 0
@@ -200,7 +205,8 @@ pub fn a_clean_history_says_so_quietly_test() {
   // thirty minutes is past the ten the bank ignores.
   assert message.body
     == "todos os dias fecham. Banco do mês: +0h30 em 1 dia(s)."
-    <> " Sobram 39h30 do limite de 40h00"
+    // No folha configured here, so the room is this month's and says so.
+    <> " Sobram, só deste mês, 39h30 do limite de 40h00"
   promise.resolve(Nil)
 }
 
@@ -216,6 +222,7 @@ pub fn a_receipt_that_cannot_be_read_is_not_a_clean_history_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    carried: Error(Nil),
   ))
 
   let assert timesheet.Unreadable(stage:, ..) = inspected
@@ -258,6 +265,7 @@ pub fn the_oldest_day_is_never_judged_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    carried: Error(Nil),
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = inspected

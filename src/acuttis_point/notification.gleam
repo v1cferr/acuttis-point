@@ -264,6 +264,11 @@ pub fn from_declined(
 /// The month's hours, in one clause. Says how many days it is measured over,
 /// because a balance over four days and one over twenty mean different things,
 /// and names the days it could not measure rather than hiding them in the sum.
+///
+/// Then the whole bank, which is the number the limit is about — and, when the
+/// folha has not said where the bank stood, that the room quoted is only this
+/// month's. Reading 29h of room when the truth is 25h is exactly how forty hours
+/// arrives as a surprise.
 fn hours(month: balance.Balance) -> String {
   "Banco do mês: "
   <> balance.signed(balance.difference(month))
@@ -275,10 +280,18 @@ fn hours(month: balance.Balance) -> String {
     days ->
       ", fora " <> int.to_string(list.length(days)) <> " sem par para medir"
   }
-  <> ". Sobram "
+  <> ". "
+  <> case balance.accumulated(month) {
+    Ok(whole) -> "Acumulado: " <> balance.signed(whole) <> ", sobram "
+    Error(Nil) -> "Sobram, só deste mês, "
+  }
   <> balance.duration(balance.room_left(month))
   <> " do limite de "
   <> balance.duration(month.limit_minutes)
+  <> case balance.nearly_full(month) {
+    True -> ". Atenção: mais um mês como este passa do limite"
+    False -> ""
+  }
   // Days that broke a rule other than the hours: over five consecutive hours, or
   // more compensation in one day than a weekday may carry. Named because the
   // document calls them monitored, which means somebody is looking.

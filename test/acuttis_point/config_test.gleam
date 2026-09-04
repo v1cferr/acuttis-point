@@ -1,3 +1,4 @@
+import acuttis_point/balance
 import acuttis_point/clock
 import acuttis_point/config
 import acuttis_point/punch
@@ -344,4 +345,62 @@ pub fn a_schedule_that_could_run_over_five_hours_is_refused_test() {
       worst: 315,
       allowed: 300,
     ))
+}
+
+// The bank the receipt cannot see, copied off the last folha. Written the way
+// the sheet writes it: a signed figure and the month it closes.
+pub fn the_carried_bank_is_read_from_the_folha_test() {
+  let assert Ok(loaded) =
+    config.from_env(
+      env([
+        #("BANK_CARRIED_THROUGH", "2026-08"),
+        #("BANK_CARRIED_MINUTES", "+851"),
+      ]),
+    )
+
+  assert loaded.carried_bank == Ok(balance.Carried(2026, 8, 851))
+
+  // A bank runs both ways, so the figure takes a sign.
+  let assert Ok(in_debt) =
+    config.from_env(
+      env([
+        #("BANK_CARRIED_THROUGH", "2026-12"),
+        #("BANK_CARRIED_MINUTES", "-90"),
+      ]),
+    )
+
+  assert in_debt.carried_bank == Ok(balance.Carried(2026, 12, -90))
+}
+
+// Nothing configured is the honest default: no folha means the room left is
+// this month's, and the report says so rather than assuming an empty bank.
+pub fn no_folha_configured_is_not_an_empty_bank_test() {
+  let assert Ok(loaded) = config.from_env(env([]))
+
+  assert loaded.carried_bank == Error(Nil)
+}
+
+// Half of it is a mistake, not a default. A figure with no month cannot be
+// matched against the month being reported, and matching is the whole point.
+pub fn half_a_carried_bank_is_refused_test() {
+  assert config.from_env(env([#("BANK_CARRIED_MINUTES", "851")]))
+    == Error(config.IncompleteCarriedBank)
+
+  assert config.from_env(env([#("BANK_CARRIED_THROUGH", "2026-08")]))
+    == Error(config.IncompleteCarriedBank)
+}
+
+pub fn a_carried_month_has_to_be_a_month_test() {
+  let through = fn(raw) {
+    config.from_env(
+      env([#("BANK_CARRIED_THROUGH", raw), #("BANK_CARRIED_MINUTES", "851")]),
+    )
+  }
+
+  assert through("agosto")
+    == Error(config.NotAMonth("BANK_CARRIED_THROUGH", "agosto"))
+  assert through("2026-13")
+    == Error(config.NotAMonth("BANK_CARRIED_THROUGH", "2026-13"))
+  assert through("2026-08-31")
+    == Error(config.NotAMonth("BANK_CARRIED_THROUGH", "2026-08-31"))
 }

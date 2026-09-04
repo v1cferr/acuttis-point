@@ -28,6 +28,16 @@ fn month(
   reporting: String,
   today: String,
 ) -> balance.Balance {
+  carrying(entries, reporting, today, Error(Nil))
+}
+
+/// The same month, with a folha behind it.
+fn carrying(
+  entries: List(#(String, List(String))),
+  reporting: String,
+  today: String,
+  carried: Result(balance.Carried, Nil),
+) -> balance.Balance {
   balance.for_month(
     days: audit.audit(rows: rows(entries), today: day(today)).days,
     month_of: day(reporting),
@@ -36,6 +46,7 @@ fn month(
     tolerance_minutes: tolerance,
     min_lunch_minutes: min_lunch,
     limit_minutes: 2400,
+    carried: carried,
   )
 }
 
@@ -189,6 +200,85 @@ pub fn the_compensation_limit_is_reported_test() {
   assert found.limit_minutes == 2400
   // Forty hours minus the 3h23 July moved.
   assert balance.duration(balance.room_left(found)) == "36h37"
+  // And with no folha behind it, that is only July: the limit is about the whole
+  // bank, and the months before this one are not on this receipt.
+  assert balance.accumulated(found) == Error(Nil)
+}
+
+// The limit is on the bank, and the bank started before this month. Ten hours
+// carried in and 3h23 moved is 13h23 against the forty, not 3h23.
+pub fn the_bank_is_what_was_carried_in_plus_the_month_test() {
+  let found =
+    carrying(
+      july,
+      "2026-07-15",
+      "2026-08-01",
+      Ok(balance.Carried(2026, 6, 600)),
+    )
+
+  assert balance.signed(balance.accumulated(found) |> unwrap) == "+13h23"
+  assert balance.duration(balance.room_left(found)) == "26h37"
+}
+
+// A folha that closes some other month is a number about other months. Refused
+// rather than added, because the months in between are unknown here and the
+// error would run in the comfortable direction: more room than there is.
+pub fn a_folha_from_another_month_is_not_added_test() {
+  let found =
+    carrying(
+      july,
+      "2026-07-15",
+      "2026-08-01",
+      Ok(balance.Carried(2026, 5, 600)),
+    )
+
+  assert balance.accumulated(found) == Error(Nil)
+  assert balance.duration(balance.room_left(found)) == "36h37"
+}
+
+// December closes January's previous month, which is the one case a subtraction
+// gets wrong.
+pub fn december_carries_into_january_test() {
+  let found =
+    carrying(
+      july,
+      "2027-01-15",
+      "2027-01-20",
+      Ok(balance.Carried(2026, 12, 900)),
+    )
+
+  assert found.measured == []
+  assert balance.signed(balance.accumulated(found) |> unwrap) == "+15h00"
+}
+
+// The warning is the month itself: at this rate, one more like it crosses forty
+// hours. Nothing here stops the hours accumulating, so the only thing worth
+// doing is saying it while there is still a month to act in.
+pub fn a_month_that_would_cross_the_limit_warns_test() {
+  let close =
+    carrying(
+      july,
+      "2026-07-15",
+      "2026-08-01",
+      Ok(balance.Carried(2026, 6, 2100)),
+    )
+  // 2100 carried plus 3h23 is 38h23, and 1h37 of room against a month of 3h23.
+  assert balance.duration(balance.room_left(close)) == "1h37"
+  assert balance.nearly_full(close)
+
+  let far =
+    carrying(
+      july,
+      "2026-07-15",
+      "2026-08-01",
+      Ok(balance.Carried(2026, 6, 600)),
+    )
+  assert !balance.nearly_full(far)
+}
+
+fn unwrap(minutes: Result(Int, Nil)) -> Int {
+  let assert Ok(value) = minutes
+  value
 }
 
 pub fn zero_carries_a_sign_test() {

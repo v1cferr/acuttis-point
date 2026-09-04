@@ -174,6 +174,23 @@ What none of this can see is Gestão de Pessoas' adjustments, which by their own
 document never appear in the history. A day they have corrected still reads here
 as it was punched, so the number is a floor.
 
+The 40 hour limit, though, is about the whole bank rather than about one month,
+and the bank started before the receipt does. So the months already closed arrive
+from the folha, as `BANK_CARRIED_MINUTES` and the month it closes:
+
+```
+accumulated = what the folha carried in + what this month has moved
+```
+
+Without it the report can only speak for this month, and says so — quoting a
+month's room against a limit the whole bank is measured by would read as more
+room than there is, which is exactly how forty hours arrives as a surprise. A
+carried figure that no longer closes the month before the one being reported is
+dropped rather than added: the months in between are on nobody's receipt, and
+guessing them is inventing hours. When the bank gets within one month of the
+limit — this month's own movement is the threshold — the evening notification
+says so, while there is still a month to do something about it.
+
 ### One token, spendable once
 
 Two things want to punch: a tap on the notification, and the deadline that covers

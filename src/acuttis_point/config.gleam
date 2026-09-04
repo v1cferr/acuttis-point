@@ -5,6 +5,7 @@
 //// tests fill by hand. Credentials deliberately live elsewhere, so a `Config`
 //// is always safe to print.
 
+import acuttis_point/balance
 import acuttis_point/clock
 import acuttis_point/punch
 import gleam/dict.{type Dict}
@@ -69,6 +70,11 @@ pub type Config {
     /// compensação, and it is 40 hours. Reported, not enforced: nothing here can
     /// stop hours accumulating.
     compensation_limit_minutes: Int,
+    /// Where the bank stood when FAI last closed a folha, and which month that
+    /// folha closes. Their sheet is the only record of the months the receipt no
+    /// longer reaches, so without it the room left against the limit is only
+    /// this month's, which reads as more room than there is.
+    carried_bank: Result(balance.Carried, Nil),
     /// The dates already announced, so a day is only reported once. The days
     /// already sent to Gestão de Pessoas stay wrong in Acuttis until they fix
     /// them, and an audit repeating itself every evening teaches its reader to
@@ -120,6 +126,12 @@ pub type ConfigError {
   /// Both ways of claiming at once. Refused rather than resolved, because the
   /// two mean different things and guessing which was meant could punch.
   ConflictingClaim
+  /// A month written some way other than YYYY-MM.
+  NotAMonth(key: String, value: String)
+  /// Half of the carried bank: a figure with no month, or a month with no
+  /// figure. Refused rather than half-applied, because a figure whose month is
+  /// unknown cannot be checked against the month being reported.
+  IncompleteCarriedBank
 }
 
 const default_base_url = "https://app.acuttis.com.br"
@@ -228,6 +240,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     // A thousand hours. Past that it is not a compensation limit.
     60_000,
   ))
+  use carried_bank <- result.try(carried_bank(env))
   use daily_minutes <- result.try(bounded_int(
     env,
     "DAILY_MINUTES",
@@ -256,6 +269,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     audit:,
     daily_minutes:,
     compensation_limit_minutes:,
+    carried_bank:,
     announced_file:,
     screenshot_dir:,
     proxy_server:,
@@ -450,6 +464,11 @@ pub fn error_to_string(error: ConfigError) -> String {
       punch.to_string(later)
       <> " is scheduled before "
       <> punch.to_string(earlier)
+    NotAMonth(key:, value:) ->
+      key <> "=" <> value <> " is not a month, write it as YYYY-MM"
+    IncompleteCarriedBank ->
+      "BANK_CARRIED_MINUTES and BANK_CARRIED_THROUGH are one figure and the"
+      <> " month it closes; set both or neither"
     LunchCouldBeTooShort(guaranteed:, required:) ->
       "this schedule could produce a lunch break of only "
       <> int.to_string(guaranteed)
@@ -615,6 +634,78 @@ fn bounded_int(
               ))
             False -> Ok(value)
           }
+      }
+  }
+}
+
+/// The bank as the last folha closed it. Both keys or neither: a figure with no
+/// month cannot be matched against the month being reported, and a month with no
+/// figure says nothing at all. Half of it configured is a mistake to refuse, not
+/// a default to guess at.
+fn carried_bank(
+  env: Dict(String, String),
+) -> Result(Result(balance.Carried, Nil), ConfigError) {
+  case
+    optional(env, "BANK_CARRIED_THROUGH"),
+    optional(env, "BANK_CARRIED_MINUTES")
+  {
+    Error(Nil), Error(Nil) -> Ok(Error(Nil))
+    Ok(_), Error(Nil) | Error(Nil), Ok(_) -> Error(IncompleteCarriedBank)
+    Ok(through), Ok(minutes) -> {
+      use #(year, month) <- result.try(year_month(
+        "BANK_CARRIED_THROUGH",
+        through,
+      ))
+      use minutes <- result.try(signed_int(
+        "BANK_CARRIED_MINUTES",
+        minutes,
+        // A thousand hours either way, the same bound the limit itself takes.
+        -60_000,
+        60_000,
+      ))
+      Ok(Ok(balance.Carried(year: year, month: month, minutes: minutes)))
+    }
+  }
+}
+
+fn year_month(key: String, raw: String) -> Result(#(Int, Int), ConfigError) {
+  case string.split(raw, on: "-") {
+    [year, month] ->
+      // `08` parses as eight, so a month copied straight off the folha reads.
+      case int.parse(year), int.parse(month) {
+        Ok(year), Ok(month) if month >= 1 && month <= 12 && year >= 2000 ->
+          Ok(#(year, month))
+        _, _ -> Error(NotAMonth(key: key, value: raw))
+      }
+    _ -> Error(NotAMonth(key: key, value: raw))
+  }
+}
+
+/// A bank figure reads either way, so unlike the other numbers here this one
+/// takes a sign — and a leading `+`, which is how the folha writes a credit.
+fn signed_int(
+  key: String,
+  raw: String,
+  minimum: Int,
+  maximum: Int,
+) -> Result(Int, ConfigError) {
+  let digits = case string.starts_with(raw, "+") {
+    True -> string.drop_start(raw, 1)
+    False -> raw
+  }
+
+  case int.parse(digits) {
+    Error(Nil) -> Error(NotAnInteger(key: key, value: raw))
+    Ok(value) ->
+      case value < minimum || value > maximum {
+        True ->
+          Error(OutOfRange(
+            key: key,
+            value: raw,
+            minimum: minimum,
+            maximum: maximum,
+          ))
+        False -> Ok(value)
       }
   }
 }

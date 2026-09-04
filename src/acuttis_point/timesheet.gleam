@@ -48,6 +48,7 @@ pub fn inspect(
   tolerance_minutes tolerance_minutes: Int,
   min_lunch_minutes min_lunch_minutes: Int,
   limit_minutes limit_minutes: Int,
+  carried carried: Result(balance.Carried, Nil),
 ) -> Promise(Inspection) {
   use opened <- promise.await(port.open())
 
@@ -65,6 +66,7 @@ pub fn inspect(
         tolerance_minutes,
         min_lunch_minutes,
         limit_minutes,
+        carried,
       ))
       use _ <- promise.await(port.close(session))
       promise.resolve(result)
@@ -168,6 +170,7 @@ fn read(
   tolerance_minutes: Int,
   min_lunch_minutes: Int,
   limit_minutes: Int,
+  carried: Result(balance.Carried, Nil),
 ) -> Promise(Inspection) {
   use signed_in <- promise.await(port.sign_in(session, secrets))
 
@@ -196,6 +199,7 @@ fn read(
               tolerance_minutes: tolerance_minutes,
               min_lunch_minutes: min_lunch_minutes,
               limit_minutes: limit_minutes,
+              carried: carried,
             ),
           )
         }

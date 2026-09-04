@@ -26,6 +26,11 @@
 //// What this still cannot see is Gestão de Pessoas' adjustments, which by their
 //// own document never appear in the history. So a day they have corrected still
 //// reads here as it was punched, and this number stays a floor.
+////
+//// The forty hour limit, though, is about the whole bank and not about one
+//// month, and the bank runs further back than the receipt reaches. So the months
+//// before this one arrive as a `Carried` figure copied from the last folha,
+//// which is the only place they are written down.
 
 import acuttis_point/audit
 import acuttis_point/clock
@@ -39,6 +44,15 @@ pub const max_consecutive_minutes = 300
 
 /// Compensation a single weekday may carry, past which it needs authorisation.
 pub const max_daily_compensation_minutes = 120
+
+/// The bank as FAI's folha closed it, and the month that folha closes.
+///
+/// Their number rather than this module's. Recomputing the months the receipt no
+/// longer reaches is not an option — the rows are gone — and their sheet has
+/// already applied the adjustments this cannot see.
+pub type Carried {
+  Carried(year: Int, month: Int, minutes: Int)
+}
 
 pub type DayHours {
   Measured(
@@ -73,6 +87,11 @@ pub type Balance {
     unmeasurable: List(DayHours),
     /// The most the bank may hold either way: FAI's limite de compensação.
     limit_minutes: Int,
+    /// What the folha carried into this month, when the one configured closes
+    /// the month before it. `Error(Nil)` when there is none, or when it closes
+    /// some other month — the months between it and this one are unknown here,
+    /// and adding it across them would invent them.
+    carried_minutes: Result(Int, Nil),
   )
 }
 
@@ -89,6 +108,7 @@ pub fn for_month(
   tolerance_minutes tolerance_minutes: Int,
   min_lunch_minutes min_lunch_minutes: Int,
   limit_minutes limit_minutes: Int,
+  carried carried: Result(Carried, Nil),
 ) -> Balance {
   let judged =
     days
@@ -110,7 +130,31 @@ pub fn for_month(
     measured: list.filter(judged, is_measured),
     unmeasurable: list.filter(judged, fn(day) { !is_measured(day) }),
     limit_minutes: limit_minutes,
+    carried_minutes: carried_into(carried, month_of),
   )
+}
+
+/// The carried figure, but only when it closes the month immediately before the
+/// one being reported.
+///
+/// A folha from three months back is not a wrong number, it is a number about
+/// other months, and the ones in between are not on this receipt either. Refused
+/// rather than added, so a stale `BANK_CARRIED_THROUGH` shows up as a bank this
+/// cannot state instead of one it states too low.
+fn carried_into(
+  carried: Result(Carried, Nil),
+  month_of: clock.Date,
+) -> Result(Int, Nil) {
+  let previous = case clock.month(month_of) {
+    1 -> #(clock.year(month_of) - 1, 12)
+    month -> #(clock.year(month_of), month - 1)
+  }
+
+  case carried {
+    Ok(Carried(year:, month:, minutes:)) if previous == #(year, month) ->
+      Ok(minutes)
+    Ok(_) | Error(Nil) -> Error(Nil)
+  }
 }
 
 /// Everything banked upwards, in minutes. FAI's "Banco Horas Créd".
@@ -141,14 +185,42 @@ pub fn worked_minutes(balance: Balance) -> Int {
   |> sum
 }
 
-/// How much of the compensation limit this month has not used.
+/// The whole bank: what the folha carried in, plus what this month has moved.
+/// This, and not the month, is what the forty hour limit is about.
 ///
-/// This month only. The limit is on the bank as a whole and the bank runs
-/// further back than the receipt serves, so this is a floor on the room left
-/// rather than the answer. The folha is the answer.
+/// `Error(Nil)` when no folha closes the month before this one, and then the
+/// month's own movement is all that can honestly be said.
+pub fn accumulated(balance: Balance) -> Result(Int, Nil) {
+  case balance.carried_minutes {
+    Ok(carried) -> Ok(carried + difference(balance))
+    Error(Nil) -> Error(Nil)
+  }
+}
+
+/// How much of the compensation limit the bank has not used.
+///
+/// Measured against the whole bank when the folha says where it stood, and
+/// against this month alone when it does not — which reads as more room than
+/// there is, never less, because the earlier months are still in the bank. That
+/// is the wrong direction to be wrong in, and it is why the carried figure
+/// exists.
 pub fn room_left(balance: Balance) -> Int {
-  let used = int.absolute_value(difference(balance))
+  let used = case accumulated(balance) {
+    Ok(whole) -> int.absolute_value(whole)
+    Error(Nil) -> int.absolute_value(difference(balance))
+  }
   int.max(0, balance.limit_minutes - used)
+}
+
+/// Whether another month like this one would put the bank past the limit.
+///
+/// The month is its own threshold, which is what makes this worth saying out
+/// loud: a month that banked ten hours warns ten hours out, and a month that
+/// banked nothing does not warn at all. Nothing here stops the hours
+/// accumulating — the point is to hear about it while there is still a month to
+/// do something in.
+pub fn nearly_full(balance: Balance) -> Bool {
+  room_left(balance) <= int.absolute_value(difference(balance))
 }
 
 /// Days that broke a rule other than the hours themselves: more than five
@@ -198,6 +270,15 @@ pub fn to_line(balance: Balance) -> String {
   <> int.to_string(list.length(balance.unmeasurable))
   <> " irregular="
   <> int.to_string(list.length(irregular(balance)))
+  <> " accumulated="
+  <> case accumulated(balance) {
+    Ok(whole) -> signed(whole)
+    // Said rather than left blank: a reader should know the difference between
+    // a bank at zero and a bank nobody told this run about.
+    Error(Nil) -> "unknown"
+  }
+  <> " room="
+  <> duration(room_left(balance))
   <> " limit="
   <> duration(balance.limit_minutes)
 }
