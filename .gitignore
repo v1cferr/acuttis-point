@@ -24,8 +24,10 @@ screenshots/
 # The saved browser session stands in for the password until it expires
 *session*.json
 
-# Estado local: sessão e screenshots (dado pessoal)
+# Local state: session and screenshots (personal data)
 state/
 
-# Internal FAI correspondence: local reference only, never published
+# Internal FAI correspondence and my own time sheets: local reference only,
+# never published
 *.eml
+docs/folha-ponto/
