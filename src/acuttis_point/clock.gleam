@@ -132,6 +132,45 @@ pub fn days_in_month(year year: Int, month month: Int) -> Int {
   }
 }
 
+/// The day after this one, across the end of a month or of a year.
+pub fn next_day(date: Date) -> Date {
+  case date.day < days_in_month(year: date.year, month: date.month) {
+    True -> Date(..date, day: date.day + 1)
+    False ->
+      case date.month {
+        12 -> Date(year: date.year + 1, month: 1, day: 1)
+        _ -> Date(year: date.year, month: date.month + 1, day: 1)
+      }
+  }
+}
+
+pub fn previous_day(date: Date) -> Date {
+  case date.day > 1 {
+    True -> Date(..date, day: date.day - 1)
+    False ->
+      case date.month {
+        1 -> Date(year: date.year - 1, month: 12, day: 31)
+        _ ->
+          Date(
+            year: date.year,
+            month: date.month - 1,
+            day: days_in_month(year: date.year, month: date.month - 1),
+          )
+      }
+  }
+}
+
+/// A day at a time rather than by arithmetic on a day count. The distances this
+/// is asked for are small — sixty days at the most, from Easter to Corpus
+/// Christi — and stepping through the calendar cannot get a leap year wrong.
+pub fn add_days(date: Date, days: Int) -> Date {
+  case days {
+    0 -> date
+    ahead if ahead > 0 -> add_days(next_day(date), days - 1)
+    _ -> add_days(previous_day(date), days + 1)
+  }
+}
+
 pub fn hour(time: TimeOfDay) -> Int {
   time.minutes / 60
 }

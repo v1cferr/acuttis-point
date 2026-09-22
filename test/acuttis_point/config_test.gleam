@@ -1,6 +1,7 @@
 import acuttis_point/balance
 import acuttis_point/clock
 import acuttis_point/config
+import acuttis_point/holiday
 import acuttis_point/punch
 import gleam/dict
 import gleam/list
@@ -37,7 +38,8 @@ pub fn defaults_cover_everything_but_the_schedule_test() {
     ]
   assert loaded.tolerance_minutes == 10
   assert loaded.timezone == "America/Sao_Paulo"
-  assert loaded.skip_dates == []
+  assert loaded.calendar
+    == holiday.Calendar(national: True, local: [], declared: [], bridges: True)
   assert !loaded.dry_run
 }
 
@@ -116,7 +118,44 @@ pub fn skip_dates_are_optional_and_parsed_test() {
     config.from_env(env([#("SKIP_DATES", "2026-09-07, 2026-12-25")]))
   let assert Ok(independence) = clock.parse_date("2026-09-07")
   let assert Ok(christmas) = clock.parse_date("2026-12-25")
-  assert loaded.skip_dates == [independence, christmas]
+  assert loaded.calendar.declared == [independence, christmas]
+}
+
+pub fn local_holidays_are_parsed_with_their_names_test() {
+  let assert Ok(loaded) =
+    config.from_env(
+      env([
+        #(
+          "LOCAL_HOLIDAYS",
+          "2026-11-04=Aniversario de Sao Carlos, 2026-07-09=Revolucao Constitucionalista",
+        ),
+      ]),
+    )
+  let assert Ok(anniversary) = clock.parse_date("2026-11-04")
+  let assert Ok(revolution) = clock.parse_date("2026-07-09")
+  assert loaded.calendar.local
+    == [
+      #(anniversary, "Aniversario de Sao Carlos"),
+      #(revolution, "Revolucao Constitucionalista"),
+    ]
+}
+
+/// A day off that cannot say what it is belongs in SKIP_DATES, which asks for
+/// no name because it promises none.
+pub fn a_local_holiday_without_a_name_is_refused_test() {
+  assert config.from_env(env([#("LOCAL_HOLIDAYS", "2026-11-04")]))
+    == Error(config.NamelessHoliday(key: "LOCAL_HOLIDAYS", value: "2026-11-04"))
+
+  assert config.from_env(env([#("LOCAL_HOLIDAYS", "2026-11-04=  ")]))
+    == Error(config.NamelessHoliday(key: "LOCAL_HOLIDAYS", value: "2026-11-04="))
+}
+
+pub fn the_derived_calendar_and_the_emenda_can_be_turned_off_test() {
+  let assert Ok(loaded) =
+    config.from_env(
+      env([#("NATIONAL_HOLIDAYS", "false"), #("BRIDGE_HOLIDAYS", "false")]),
+    )
+  assert loaded.calendar == holiday.nothing_off()
 }
 
 pub fn skip_dates_reject_impossible_days_test() {
@@ -271,7 +310,7 @@ pub fn describe_lists_the_effective_settings_test() {
   assert config.describe(loaded)
     == "url=https://app.acuttis.com.br days=MON ENTRY=08:00 LUNCH_START=12:00 "
     <> "LUNCH_END=14:00 EXIT=17:30 tolerance=10m tz=America/Sao_Paulo "
-    <> "lunch>=110m skipped=0 dry_run=false"
+    <> "lunch>=110m calendar=national+bridges+0local+0off dry_run=false"
 
   // Where a run goes out from belongs in the header: it is the difference
   // between two runs that otherwise log identically.
@@ -282,7 +321,8 @@ pub fn describe_lists_the_effective_settings_test() {
   assert config.describe(proxied)
     == "url=https://app.acuttis.com.br days=MON ENTRY=08:00 LUNCH_START=12:00 "
     <> "LUNCH_END=14:00 EXIT=17:30 tolerance=10m tz=America/Sao_Paulo "
-    <> "lunch>=110m skipped=0 dry_run=false proxy=socks5://127.0.0.1:11080"
+    <> "lunch>=110m calendar=national+bridges+0local+0off dry_run=false"
+    <> " proxy=socks5://127.0.0.1:11080"
 }
 
 pub fn error_to_string_is_actionable_test() {

@@ -1,6 +1,7 @@
 import acuttis_point/clock
 import acuttis_point/config
 import acuttis_point/decision
+import acuttis_point/holiday
 import acuttis_point/punch
 import acuttis_point/state
 import gleam/dict
@@ -188,7 +189,46 @@ pub fn configured_days_off_are_skipped_test() {
       now: moment(workday, "08:00"),
       registered: [],
     )
-  assert outcome.decision == decision.Skip(decision.NonWorkingDate(on(workday)))
+  assert outcome.decision
+    == decision.Skip(decision.NonWorkingDate(
+      date: on(workday),
+      reason: holiday.Declared,
+    ))
+}
+
+/// The one that was missing on 2026-09-07, when the automation asked at 07:51
+/// whether to register the entry of Independence Day. Nothing is configured
+/// here: the date alone is enough.
+pub fn a_national_holiday_is_skipped_without_being_configured_test() {
+  let outcome =
+    decision.decide(
+      settings: settings([]),
+      now: moment("2026-09-07", "07:51"),
+      registered: [],
+    )
+  assert outcome.decision
+    == decision.Skip(decision.NonWorkingDate(
+      date: on("2026-09-07"),
+      reason: holiday.Observed(holiday.Independence),
+    ))
+}
+
+/// And the day FAI takes off after it. Corpus Christi 2026 is a Thursday.
+pub fn the_emenda_after_a_holiday_is_skipped_test() {
+  let outcome =
+    decision.decide(
+      settings: settings([]),
+      now: moment("2026-06-05", "07:51"),
+      registered: [],
+    )
+  assert outcome.decision
+    == decision.Skip(decision.NonWorkingDate(
+      date: on("2026-06-05"),
+      reason: holiday.Bridge(
+        holiday: holiday.CorpusChristi,
+        date: on("2026-06-04"),
+      ),
+    ))
 }
 
 pub fn an_impossible_day_aborts_test() {

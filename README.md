@@ -83,6 +83,8 @@ The automation is built to do nothing rather than something wrong.
 
 - **Weekdays only, at configured times.** A punch is registered only inside
   the tolerance window that follows its scheduled time.
+- **No expedient, no punch.** Holidays are derived rather than remembered, and
+  FAI's emenda with them — see [The calendar](#the-calendar).
 - **No backdating.** Once the window has closed the run aborts rather than
   register a time that no longer reflects reality.
 - **No duplicates.** Idempotency is not a special case: once a punch is on
@@ -131,6 +133,36 @@ through the day is rejected at startup.
 a scheduled time a punch may still be registered. It is also what makes a
 catch-up run safe after the machine was asleep — a run that wakes up too late
 refuses to punch instead of inventing a time.
+
+### The calendar
+
+On 2026-09-07 — Independence Day — this asked, at 07:51, whether to register the
+entry. Nothing in the configuration was wrong: the holidays were a list somebody
+had to remember to write, and the list was empty.
+
+So they are derived. Nine fixed national dates and the four that move with
+Easter, computed for whatever year is asked about, from `NATIONAL_HOLIDAYS`.
+Carnival is why a list would not have done: it is not in the same month two
+years running.
+
+What cannot be derived is declared. The municipal and state ones —
+Revolução Constitucionalista, Aniversário de São Carlos — come from
+`LOCAL_HOLIDAYS`, each with the name it is known by, because a notification that
+says the day off is "2026-11-04" explains nothing.
+
+And FAI emendas: the working day left standing between a holiday and the weekend
+goes too. Thursday's holiday costs the Friday, Tuesday's costs the Monday, and a
+Wednesday's costs nothing, because one day off cannot reach a weekend from the
+middle of the week. That rule is `BRIDGE_HOLIDAYS`, and the emenda names the
+holiday it hangs off:
+
+```
+2026-06-05 08:01 result=SKIPPED reason="2026-06-05 is a day without expedient:
+                 bridges Corpus Christi on 2026-06-04"
+```
+
+A day merely declared off in `SKIP_DATES` bridges nothing. Leave is not a
+holiday, and nobody emendas a vacation.
 
 ### The hour bank, by their rules
 

@@ -11,6 +11,7 @@
 
 import acuttis_point/clock
 import acuttis_point/config
+import acuttis_point/holiday
 import acuttis_point/punch
 import acuttis_point/state
 import gleam/int
@@ -27,7 +28,9 @@ pub type Decision {
 
 pub type SkipReason {
   NotAWorkDay(clock.Weekday)
-  NonWorkingDate(clock.Date)
+  /// A day with no expedient, and which kind of day it is: a holiday, the
+  /// emenda that follows one, or a day declared off by hand.
+  NonWorkingDate(date: clock.Date, reason: holiday.Reason)
   DayAlreadyComplete
   /// The punch due in the window that is open right now is already on record.
   AlreadyRegistered(punch: punch.Punch, at: clock.TimeOfDay)
@@ -93,8 +96,10 @@ pub fn skip_reason_to_string(reason: SkipReason) -> String {
   case reason {
     NotAWorkDay(day) ->
       clock.weekday_to_string(day) <> " is not a configured work day"
-    NonWorkingDate(date) ->
-      clock.date_to_string(date) <> " is configured as a day without expedient"
+    NonWorkingDate(date:, reason:) ->
+      clock.date_to_string(date)
+      <> " is a day without expedient: "
+      <> holiday.reason_to_string(reason)
     DayAlreadyComplete -> "every punch of the day is already registered"
     AlreadyRegistered(punch: target, at:) ->
       punch.to_string(target)
@@ -134,9 +139,9 @@ fn choose(
   case list.contains(settings.work_days, today) {
     False -> Skip(NotAWorkDay(today))
     True ->
-      case list.contains(settings.skip_dates, now.date) {
-        True -> Skip(NonWorkingDate(now.date))
-        False ->
+      case holiday.observance(calendar: settings.calendar, on: now.date) {
+        Ok(reason) -> Skip(NonWorkingDate(date: now.date, reason: reason))
+        Error(Nil) ->
           case current {
             state.Invalid(inconsistency) ->
               Abort(InconsistentState(inconsistency))

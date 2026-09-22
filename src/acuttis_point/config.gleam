@@ -7,6 +7,7 @@
 
 import acuttis_point/balance
 import acuttis_point/clock
+import acuttis_point/holiday
 import acuttis_point/punch
 import gleam/dict.{type Dict}
 import gleam/int
@@ -36,8 +37,9 @@ pub type Config {
     /// refused, rather than left to come out short on an unlucky day.
     min_lunch_minutes: Int,
     timezone: String,
-    /// Holidays, days off and anything else without an expedient.
-    skip_dates: List(clock.Date),
+    /// Which days have no expedient: the holidays that can be derived, the
+    /// ones that cannot, FAI's emenda, and whatever is declared by hand.
+    calendar: holiday.Calendar,
     /// Decide and log, but never touch Acuttis.
     dry_run: Bool,
     /// How long any single browser step may take.
@@ -132,6 +134,10 @@ pub type ConfigError {
   /// figure. Refused rather than half-applied, because a figure whose month is
   /// unknown cannot be checked against the month being reported.
   IncompleteCarriedBank
+  /// A local holiday with no name. Refused rather than named after its own
+  /// date: a notification saying the day off is "2026-11-04" explains nothing,
+  /// and an emenda has to be able to name the holiday it bridges.
+  NamelessHoliday(key: String, value: String)
 }
 
 const default_base_url = "https://app.acuttis.com.br"
@@ -177,7 +183,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     0,
     max_tolerance_minutes,
   ))
-  use skip_dates <- result.try(date_list(env, "SKIP_DATES"))
+  use calendar <- result.try(calendar(env))
   use dry_run <- result.try(boolean(env, "DRY_RUN", False))
   use timeout_seconds <- result.try(bounded_int(
     env,
@@ -257,7 +263,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     tolerance_minutes:,
     min_lunch_minutes:,
     timezone:,
-    skip_dates:,
+    calendar:,
     dry_run:,
     timeout_seconds:,
     headless:,
@@ -414,8 +420,8 @@ pub fn describe(config: Config) -> String {
     config.schedule,
     config.tolerance_minutes,
   ))
-  <> "m skipped="
-  <> int.to_string(list.length(config.skip_dates))
+  <> "m calendar="
+  <> holiday.describe(config.calendar)
   <> " dry_run="
   <> bool_to_string(config.dry_run)
   <> case config.proxy_server {
@@ -466,6 +472,11 @@ pub fn error_to_string(error: ConfigError) -> String {
       <> punch.to_string(earlier)
     NotAMonth(key:, value:) ->
       key <> "=" <> value <> " is not a month, write it as YYYY-MM"
+    NamelessHoliday(key:, value:) ->
+      key
+      <> "="
+      <> value
+      <> " needs a name, write it as YYYY-MM-DD=Aniversario de Sao Carlos"
     IncompleteCarriedBank ->
       "BANK_CARRIED_MINUTES and BANK_CARRIED_THROUGH are one figure and the"
       <> " month it closes; set both or neither"
@@ -589,6 +600,58 @@ fn weekday_list(
   case days {
     [] -> Error(EmptyValue(key))
     _ -> Ok(list.unique(days))
+  }
+}
+
+/// The calendar of days without expedient.
+///
+/// Four keys, because they are four different claims. `NATIONAL_HOLIDAYS` turns
+/// on the ones derivable from the year alone; `LOCAL_HOLIDAYS` carries the ones
+/// that are not — municipal, state, institutional — each with the name it is
+/// known by; `BRIDGE_HOLIDAYS` is FAI's emenda; and `SKIP_DATES` is for a day
+/// off that is nobody's holiday and bridges nothing.
+fn calendar(
+  env: Dict(String, String),
+) -> Result(holiday.Calendar, ConfigError) {
+  use national <- result.try(boolean(env, "NATIONAL_HOLIDAYS", True))
+  use bridges <- result.try(boolean(env, "BRIDGE_HOLIDAYS", True))
+  use local <- result.try(named_date_list(env, "LOCAL_HOLIDAYS"))
+  use declared <- result.try(date_list(env, "SKIP_DATES"))
+
+  Ok(holiday.Calendar(
+    national: national,
+    local: local,
+    declared: declared,
+    bridges: bridges,
+  ))
+}
+
+/// `YYYY-MM-DD=Name`, comma separated. The name is not optional: see
+/// `NamelessHoliday`.
+fn named_date_list(
+  env: Dict(String, String),
+  key: String,
+) -> Result(List(#(clock.Date, String)), ConfigError) {
+  case lookup(env, key) {
+    Error(_) -> Ok([])
+    Ok(raw) ->
+      raw
+      |> split_list
+      |> list.try_map(fn(item) {
+        case string.split_once(item, on: "=") {
+          Error(Nil) -> Error(NamelessHoliday(key: key, value: item))
+          Ok(#(date, name)) ->
+            case string.trim(name) {
+              "" -> Error(NamelessHoliday(key: key, value: item))
+              name ->
+                clock.parse_date(date)
+                |> result.map(fn(date) { #(date, name) })
+                |> result.map_error(fn(reason) {
+                  InvalidValue(key: key, value: item, reason: reason)
+                })
+            }
+        }
+      })
   }
 }
 

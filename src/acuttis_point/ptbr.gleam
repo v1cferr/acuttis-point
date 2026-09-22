@@ -13,6 +13,7 @@
 import acuttis_point/audit
 import acuttis_point/clock
 import acuttis_point/decision
+import acuttis_point/holiday
 import acuttis_point/punch
 import acuttis_point/report
 import acuttis_point/state
@@ -105,8 +106,7 @@ pub fn registered(marks: List(state.Registered)) -> String {
 pub fn skip_reason(reason: decision.SkipReason) -> String {
   case reason {
     decision.NotAWorkDay(day) -> "hoje é " <> weekday(day) <> ", não é dia útil"
-    decision.NonWorkingDate(date) ->
-      clock.date_to_dmy(date) <> " está na lista de dias sem expediente"
+    decision.NonWorkingDate(date:, reason:) -> non_working(date, reason)
     decision.DayAlreadyComplete -> "o dia já está completo"
     decision.AlreadyRegistered(punch: target, at:) ->
       punch_with_article(target) <> " já consta às " <> clock.time_to_string(at)
@@ -114,6 +114,43 @@ pub fn skip_reason(reason: decision.SkipReason) -> String {
       punch_with_article(target)
       <> " só abre às "
       <> clock.time_to_string(opens_at)
+  }
+}
+
+/// The emenda says which holiday it hangs off, because that is the sentence
+/// that lets its reader check it: "quinta foi feriado, então hoje não tem" is
+/// verifiable, and "hoje não tem expediente" is not.
+fn non_working(date: clock.Date, reason: holiday.Reason) -> String {
+  case reason {
+    holiday.Observed(which) ->
+      clock.date_to_dmy(date) <> " é feriado: " <> holiday_name(which)
+    holiday.Bridge(holiday: which, date: when) ->
+      "hoje é emenda do feriado de "
+      <> holiday_name(which)
+      <> ", que caiu em "
+      <> clock.date_to_dmy(when)
+    holiday.Declared ->
+      clock.date_to_dmy(date) <> " está na lista de dias sem expediente"
+  }
+}
+
+pub fn holiday_name(which: holiday.Holiday) -> String {
+  case which {
+    holiday.NewYear -> "Confraternização Universal"
+    holiday.Carnival -> "Carnaval"
+    holiday.GoodFriday -> "Sexta-feira Santa"
+    holiday.Tiradentes -> "Tiradentes"
+    holiday.LabourDay -> "Dia do Trabalho"
+    holiday.CorpusChristi -> "Corpus Christi"
+    holiday.Independence -> "Independência"
+    holiday.OurLadyOfAparecida -> "Nossa Senhora Aparecida"
+    holiday.AllSouls -> "Finados"
+    holiday.RepublicDay -> "Proclamação da República"
+    holiday.BlackConsciousness -> "Consciência Negra"
+    holiday.Christmas -> "Natal"
+    // Already in Portuguese: it arrived from the configuration, written by the
+    // person who will read it back.
+    holiday.Local(name:) -> name
   }
 }
 
