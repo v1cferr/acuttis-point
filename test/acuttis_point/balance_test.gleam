@@ -310,7 +310,13 @@ pub fn zero_carries_a_sign_test() {
 // why leaving it out made the extra hours worked to repay it read as credit.
 
 fn fai() -> holiday.Calendar {
-  holiday.Calendar(national: True, local: [], declared: [], bridges: True)
+  holiday.Calendar(
+    national: True,
+    annual: [],
+    local: [],
+    declared: [],
+    bridges: True,
+  )
 }
 
 /// June 2026: Corpus Christi is Thursday the 4th, so Friday the 5th is an

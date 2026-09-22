@@ -145,9 +145,24 @@ Easter, computed for whatever year is asked about, from `NATIONAL_HOLIDAYS`.
 Carnival is why a list would not have done: it is not in the same month two
 years running.
 
-What cannot be derived is fetched. The municipal and state ones are law rather
-than arithmetic — one município at a time — so `scripts/calendar.sh` reads them
-from a published list and writes them where the program will find them:
+What cannot be derived is law — and law repeats. São Paulo has exactly one state
+holiday and São Carlos four, of which two already move with Easter:
+
+```
+09/07  Revolução Constitucionalista  estadual SP
+15/08  Nossa Senhora da Babilônia    municipal, Lei 10.257/1990
+04/11  Aniversário de São Carlos     municipal, idem (São Carlos Borromeu)
+03/04  Paixão de Cristo              municipal — already derived, it is Good Friday
+04/06  Corpus Christi                municipal — already derived
+```
+
+So three fixed dates, and they go in `ANNUAL_HOLIDAYS` as a rule rather than a
+list of years. A published calendar stops wherever somebody last published it; a
+rule does not, and 2031 resolves as well as 2026 does.
+
+`scripts/calendar.sh` still reads a published list, now as the cross-check and
+as the way to catch what no rule predicts — a holiday moved by decree in one
+particular year:
 
 ```sh
 ./scripts/calendar.sh          # refresh, and say what it wrote

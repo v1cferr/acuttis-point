@@ -9,7 +9,13 @@ fn on(raw: String) -> clock.Date {
 /// The calendar as it is deployed: the national holidays derived, nothing
 /// declared by hand, and FAI's emenda applied.
 fn fai() -> holiday.Calendar {
-  holiday.Calendar(national: True, local: [], declared: [], bridges: True)
+  holiday.Calendar(
+    national: True,
+    annual: [],
+    local: [],
+    declared: [],
+    bridges: True,
+  )
 }
 
 pub fn easter_matches_the_known_sundays_test() {
@@ -95,6 +101,7 @@ pub fn a_declared_day_off_bridges_nothing_test() {
   let calendar =
     holiday.Calendar(
       national: False,
+      annual: [],
       local: [],
       declared: [on("2026-06-04")],
       bridges: True,
@@ -176,7 +183,13 @@ pub fn unreadable_lines_are_counted_rather_than_refused_test() {
 pub fn a_published_holiday_is_observed_and_bridges_test() {
   let calendar =
     holiday.with_published(
-      holiday.Calendar(national: True, local: [], declared: [], bridges: True),
+      holiday.Calendar(
+        national: True,
+        annual: [],
+        local: [],
+        declared: [],
+        bridges: True,
+      ),
       holiday.parse_published(published_file),
     )
 
@@ -201,6 +214,7 @@ pub fn a_configured_name_wins_over_a_published_one_test() {
     holiday.with_published(
       holiday.Calendar(
         national: True,
+        annual: [],
         local: [#(on("2026-11-04"), "Aniversário da cidade")],
         declared: [],
         bridges: True,
@@ -218,4 +232,55 @@ pub fn a_calendar_that_stops_short_is_visible_test() {
   assert holiday.reaches(found, 2026)
   assert !holiday.reaches(found, 2027)
   assert holiday.reaches(holiday.parse_published(""), 2026) == False
+}
+
+// --- The annual ones ----------------------------------------------------------
+// São Paulo has one state holiday and São Carlos four, two of which already
+// move with Easter. What is left is three fixed dates, and they are law rather
+// than a yearly publication — which is the whole reason they are a rule here
+// and not a download that stops at whatever year somebody last published.
+
+fn sao_carlos() -> holiday.Calendar {
+  holiday.Calendar(..fai(), annual: [
+    #(7, 9, "Revolução Constitucionalista"),
+    #(8, 15, "Nossa Senhora da Babilônia"),
+    #(11, 4, "Aniversário de São Carlos"),
+  ])
+}
+
+pub fn the_state_and_municipal_holidays_repeat_every_year_test() {
+  let calendar = sao_carlos()
+
+  assert holiday.observance(calendar:, on: on("2026-11-04"))
+    == Ok(holiday.Observed(holiday.Local("Aniversário de São Carlos")))
+
+  // The year no published calendar has reached. This is the one that matters:
+  // a list would have gone quiet here, and a rule does not.
+  assert holiday.observance(calendar:, on: on("2031-11-04"))
+    == Ok(holiday.Observed(holiday.Local("Aniversário de São Carlos")))
+  assert holiday.observance(calendar:, on: on("2031-08-15"))
+    == Ok(holiday.Observed(holiday.Local("Nossa Senhora da Babilônia")))
+  assert holiday.observance(calendar:, on: on("2031-07-09"))
+    == Ok(holiday.Observed(holiday.Local("Revolução Constitucionalista")))
+}
+
+/// And they bridge like any other holiday. 09/07/2027 is a Friday and 15/08 a
+/// Sunday, but 09/07/2026 is a Thursday — so 10/07/2026 is an emenda.
+pub fn an_annual_holiday_bridges_test() {
+  assert holiday.observance(calendar: sao_carlos(), on: on("2026-07-10"))
+    == Ok(holiday.Bridge(
+      holiday: holiday.Local("Revolução Constitucionalista"),
+      date: on("2026-07-09"),
+    ))
+}
+
+/// A date somebody wrote down for one particular year beats the rule about
+/// every year, which is what a holiday moved by decree looks like.
+pub fn a_dated_entry_beats_the_annual_rule_test() {
+  let calendar =
+    holiday.Calendar(..sao_carlos(), local: [
+      #(on("2026-11-04"), "Aniversário, transferido"),
+    ])
+  assert holiday.observance(calendar:, on: on("2026-11-04"))
+    == Ok(holiday.Observed(holiday.Local("Aniversário, transferido")))
 }

@@ -39,7 +39,13 @@ pub fn defaults_cover_everything_but_the_schedule_test() {
   assert loaded.tolerance_minutes == 10
   assert loaded.timezone == "America/Sao_Paulo"
   assert loaded.calendar
-    == holiday.Calendar(national: True, local: [], declared: [], bridges: True)
+    == holiday.Calendar(
+      national: True,
+      annual: [],
+      local: [],
+      declared: [],
+      bridges: True,
+    )
   assert !loaded.dry_run
 }
 
@@ -310,7 +316,7 @@ pub fn describe_lists_the_effective_settings_test() {
   assert config.describe(loaded)
     == "url=https://app.acuttis.com.br days=MON ENTRY=08:00 LUNCH_START=12:00 "
     <> "LUNCH_END=14:00 EXIT=17:30 tolerance=10m tz=America/Sao_Paulo "
-    <> "lunch>=110m calendar=national+bridges+0local+0off dry_run=false"
+    <> "lunch>=110m calendar=national+bridges+0annual+0local+0off dry_run=false"
 
   // Where a run goes out from belongs in the header: it is the difference
   // between two runs that otherwise log identically.
@@ -321,7 +327,7 @@ pub fn describe_lists_the_effective_settings_test() {
   assert config.describe(proxied)
     == "url=https://app.acuttis.com.br days=MON ENTRY=08:00 LUNCH_START=12:00 "
     <> "LUNCH_END=14:00 EXIT=17:30 tolerance=10m tz=America/Sao_Paulo "
-    <> "lunch>=110m calendar=national+bridges+0local+0off dry_run=false"
+    <> "lunch>=110m calendar=national+bridges+0annual+0local+0off dry_run=false"
     <> " proxy=socks5://127.0.0.1:11080"
 }
 

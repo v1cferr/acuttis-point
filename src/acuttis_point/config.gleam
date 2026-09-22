@@ -617,23 +617,78 @@ fn weekday_list(
 ///
 /// Four keys, because they are four different claims. `NATIONAL_HOLIDAYS` turns
 /// on the ones derivable from the year alone; `LOCAL_HOLIDAYS` carries the ones
-/// that are not — municipal, state, institutional — each with the name it is
-/// known by; `BRIDGE_HOLIDAYS` is FAI's emenda; and `SKIP_DATES` is for a day
-/// off that is nobody's holiday and bridges nothing.
+/// that are not. Of those, the state and municipal ones repeat on the same date
+/// every year and go in `ANNUAL_HOLIDAYS` as a rule, so they keep working in a
+/// year no published calendar has reached; `LOCAL_HOLIDAYS` is for one
+/// particular date that even that cannot predict. `BRIDGE_HOLIDAYS` is FAI's
+/// emenda, and `SKIP_DATES` is a day off that is nobody's holiday.
 fn calendar(
   env: Dict(String, String),
 ) -> Result(holiday.Calendar, ConfigError) {
   use national <- result.try(boolean(env, "NATIONAL_HOLIDAYS", True))
   use bridges <- result.try(boolean(env, "BRIDGE_HOLIDAYS", True))
+  use annual <- result.try(annual_list(env, "ANNUAL_HOLIDAYS"))
   use local <- result.try(named_date_list(env, "LOCAL_HOLIDAYS"))
   use declared <- result.try(date_list(env, "SKIP_DATES"))
 
   Ok(holiday.Calendar(
     national: national,
+    annual: annual,
     local: local,
     declared: declared,
     bridges: bridges,
   ))
+}
+
+/// `MM-DD=Name`, comma separated: a holiday on the same date every year.
+///
+/// The state and municipal ones go here. They are law rather than a yearly
+/// publication — São Paulo's 09-07, São Carlos' 08-15 and 11-04 — so writing
+/// them as a rule is what keeps them working in a year no published calendar
+/// has reached yet.
+///
+/// Validated against a leap year, so 02-29 is a date somebody may legitimately
+/// mean; in the years it does not exist it simply never matches.
+fn annual_list(
+  env: Dict(String, String),
+  key: String,
+) -> Result(List(#(Int, Int, String)), ConfigError) {
+  case lookup(env, key) {
+    Error(_) -> Ok([])
+    Ok(raw) ->
+      raw
+      |> split_list
+      |> list.try_map(fn(item) {
+        case string.split_once(item, on: "=") {
+          Error(Nil) -> Error(NamelessHoliday(key: key, value: item))
+          Ok(#(when, name)) ->
+            case string.split(string.trim(when), on: "-"), string.trim(name) {
+              _, "" -> Error(NamelessHoliday(key: key, value: item))
+              [month, day], name ->
+                case int.parse(month), int.parse(day) {
+                  Ok(month), Ok(day) ->
+                    clock.new_date(year: 2024, month: month, day: day)
+                    |> result.map(fn(_) { #(month, day, name) })
+                    |> result.map_error(fn(reason) {
+                      InvalidValue(key: key, value: item, reason: reason)
+                    })
+                  _, _ ->
+                    Error(InvalidValue(
+                      key: key,
+                      value: item,
+                      reason: clock.MalformedDate(when),
+                    ))
+                }
+              _, _ ->
+                Error(InvalidValue(
+                  key: key,
+                  value: item,
+                  reason: clock.MalformedDate(when),
+                ))
+            }
+        }
+      })
+  }
 }
 
 /// `YYYY-MM-DD=Name`, comma separated. The name is not optional: see

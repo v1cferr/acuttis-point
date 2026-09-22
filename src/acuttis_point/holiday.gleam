@@ -9,10 +9,18 @@
 //// happened on 2026-09-07, at 07:51, with a phone asking whether to register
 //// the entry of a national holiday.
 ////
-//// The local ones cannot be derived from anything: the municipal holiday, a
-//// recesso, a day FAI closes for its own reasons. Those are declared, and they
-//// are declared *with a name*, because a day off has to be able to say what it
-//// is — and because the emenda below needs to name the holiday it bridges.
+//// The state and municipal ones cannot be derived from the year, but they are
+//// not a publication either: they are law, and law repeats. São Paulo has one
+//// state holiday and São Carlos has four, and of those four, two already move
+//// with Easter. What is left is three fixed dates — 09/07, 15/08, 04/11 — which
+//// are a rule like any other, just a rule this program has to be told once.
+//// That is `annual`.
+////
+//// Dated entries are for what even that cannot predict: a recesso, a day FAI
+//// closes for its own reasons, a municipal holiday moved by decree in one year.
+//// They are declared *with a name*, because a day off has to be able to say
+//// what it is — and because the emenda below needs to name the holiday it
+//// bridges.
 ////
 //// The emenda is the third, and it is on no calendar at all. FAI takes the
 //// working day left standing between a holiday and the weekend: a holiday on
@@ -68,7 +76,12 @@ pub type Calendar {
   Calendar(
     /// Apply the national holidays. Off leaves only what is declared here.
     national: Bool,
-    /// Holidays that cannot be derived, each with the name it is known by.
+    /// Holidays on the same date every year, as `#(month, day, name)`: the
+    /// state and municipal ones. Law rather than a yearly publication, so they
+    /// keep working in a year nobody has published a calendar for yet.
+    annual: List(#(Int, Int, String)),
+    /// Holidays on one particular date, each with the name it is known by:
+    /// what even an annual rule cannot predict.
     local: List(#(clock.Date, String)),
     /// Days off with no name.
     declared: List(clock.Date),
@@ -80,7 +93,7 @@ pub type Calendar {
 /// A calendar that skips nothing, for a test or for a deployment that wants the
 /// dates written out by hand.
 pub fn nothing_off() -> Calendar {
-  Calendar(national: False, local: [], declared: [], bridges: False)
+  Calendar(national: False, annual: [], local: [], declared: [], bridges: False)
 }
 
 /// Why this day has no expediente, or `Error(Nil)` when it is a working day.
@@ -121,8 +134,10 @@ fn bridging(calendar: Calendar, neighbour: clock.Date) -> Result(Reason, Nil) {
   |> result.map(fn(holiday) { Bridge(holiday: holiday, date: neighbour) })
 }
 
-/// The local ones first: a date named in the configuration is the name that
-/// should be reported, even on a day the national calendar also knows.
+/// In order of how specific the claim is. A date somebody wrote down beats a
+/// rule about every year, which beats the national calendar — so a holiday
+/// moved by decree in one year reports as itself, and a municipal name wins
+/// over the derived one on a day both know about.
 fn holiday_on(calendar: Calendar, date: clock.Date) -> Result(Holiday, Nil) {
   case
     list.key_find(calendar.local, date)
@@ -130,11 +145,26 @@ fn holiday_on(calendar: Calendar, date: clock.Date) -> Result(Holiday, Nil) {
   {
     Ok(holiday) -> Ok(holiday)
     Error(Nil) ->
-      case calendar.national {
-        False -> Error(Nil)
-        True -> list.key_find(national_holidays(clock.year(date)), date)
+      case annual_on(calendar.annual, date) {
+        Ok(holiday) -> Ok(holiday)
+        Error(Nil) ->
+          case calendar.national {
+            False -> Error(Nil)
+            True -> list.key_find(national_holidays(clock.year(date)), date)
+          }
       }
   }
+}
+
+fn annual_on(
+  annual: List(#(Int, Int, String)),
+  date: clock.Date,
+) -> Result(Holiday, Nil) {
+  annual
+  |> list.find(fn(entry) {
+    entry.0 == clock.month(date) && entry.1 == clock.day(date)
+  })
+  |> result.map(fn(entry) { Local(entry.2) })
 }
 
 /// Every national holiday of a year, in no particular order.
@@ -315,6 +345,7 @@ pub fn describe(calendar: Calendar) -> String {
       True -> ["bridges"]
       False -> []
     },
+    [int.to_string(list.length(calendar.annual)) <> "annual"],
     [int.to_string(list.length(calendar.local)) <> "local"],
     [int.to_string(list.length(calendar.declared)) <> "off"],
   ]
