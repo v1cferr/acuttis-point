@@ -206,6 +206,32 @@ not one.
 Rule 2 is why 30/07 was credited thirty minutes and not thirty-seven — a lunch of
 fifty-three minutes cost the seven it was short.
 
+### The emenda is a debt, not a gift
+
+FAI grants the day between a holiday and the weekend and takes the hours back
+afterwards. That makes an emenda a whole contractual day owed, and it is on no
+receipt and never will be — nobody came in, so nobody made a marking.
+
+Left out, it is worse than missing: the extra hours worked to repay an emenda
+read as pure credit, and the bank looks better than it is by a working day every
+time. So the emendas of the month are derived from the calendar and netted:
+
+```
+credit − debit − (emendas × DAILY_MINUTES)
+```
+
+`credit` and `debit` stay exactly what the receipt says, because those two are
+FAI's own columns and still have to read against their sheet. The emenda belongs
+to neither and moves the bank all the same, so the run names it separately:
+
+```
+balance month=2026-06 days=21 worked=168h00 credit=2h10 debit=0h20
+        emenda=1d/8h00 balance=-6h10 accumulated=+6h01 room=33h59
+```
+
+An emenda still ahead owes nothing: nothing has been taken yet. A holiday owes
+nothing either — it is paid. Only the day between them is a debt.
+
 The contractual day is `DAILY_MINUTES`, stated rather than derived. Derived from
 the schedule, as it once was, a longer schedule raises the bar with it and working
 more can never show as credit.

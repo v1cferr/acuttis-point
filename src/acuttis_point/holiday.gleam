@@ -197,6 +197,35 @@ pub fn easter(year: Int) -> Result(clock.Date, clock.ClockError) {
   clock.new_date(year: year, month: offset / 31, day: offset % 31 + 1)
 }
 
+/// Every day of a month that has no expedient, in calendar order, each with
+/// the reason it is off.
+///
+/// The hour bank is what wants this: an emenda is a day nobody worked and
+/// everybody owes, and it never appears on the receipt because there is nothing
+/// to appear — no marking was made.
+pub fn without_expedient(
+  calendar calendar: Calendar,
+  year year: Int,
+  month month: Int,
+) -> List(#(clock.Date, Reason)) {
+  days_of(clock.days_in_month(year: year, month: month), [])
+  |> list.filter_map(fn(day) {
+    use date <- result.try(
+      clock.new_date(year: year, month: month, day: day)
+      |> result.replace_error(Nil),
+    )
+    use reason <- result.try(observance(calendar: calendar, on: date))
+    Ok(#(date, reason))
+  })
+}
+
+fn days_of(day: Int, found: List(Int)) -> List(Int) {
+  case day < 1 {
+    True -> found
+    False -> days_of(day - 1, [day, ..found])
+  }
+}
+
 /// A published calendar, as `scripts/calendar.sh` leaves it: one
 /// `YYYY-MM-DD=Name` per line, with `#` comments and blank lines.
 pub type Published {

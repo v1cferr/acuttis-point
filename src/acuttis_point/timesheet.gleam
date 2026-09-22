@@ -15,6 +15,7 @@ import acuttis_point/balance
 import acuttis_point/browser
 import acuttis_point/clock
 import acuttis_point/credentials
+import acuttis_point/holiday
 import acuttis_point/report
 import acuttis_point/system
 import gleam/int
@@ -49,6 +50,7 @@ pub fn inspect(
   min_lunch_minutes min_lunch_minutes: Int,
   limit_minutes limit_minutes: Int,
   carried carried: Result(balance.Carried, Nil),
+  calendar calendar: holiday.Calendar,
 ) -> Promise(Inspection) {
   use opened <- promise.await(port.open())
 
@@ -67,6 +69,7 @@ pub fn inspect(
         min_lunch_minutes,
         limit_minutes,
         carried,
+        calendar,
       ))
       use _ <- promise.await(port.close(session))
       promise.resolve(result)
@@ -171,6 +174,7 @@ fn read(
   min_lunch_minutes: Int,
   limit_minutes: Int,
   carried: Result(balance.Carried, Nil),
+  calendar: holiday.Calendar,
 ) -> Promise(Inspection) {
   use signed_in <- promise.await(port.sign_in(session, secrets))
 
@@ -200,6 +204,7 @@ fn read(
               min_lunch_minutes: min_lunch_minutes,
               limit_minutes: limit_minutes,
               carried: carried,
+              calendar: calendar,
             ),
           )
         }

@@ -6,6 +6,7 @@
 
 import gleam/int
 import gleam/list
+import gleam/order
 import gleam/string
 
 pub type Weekday {
@@ -129,6 +130,18 @@ pub fn days_in_month(year year: Int, month month: Int) -> Int {
         False -> 28
       }
     _ -> 0
+  }
+}
+
+/// Calendar order.
+pub fn compare(left: Date, right: Date) -> order.Order {
+  case int.compare(left.year, right.year) {
+    order.Eq ->
+      case int.compare(left.month, right.month) {
+        order.Eq -> int.compare(left.day, right.day)
+        months -> months
+      }
+    years -> years
   }
 }
 

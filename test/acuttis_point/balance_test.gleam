@@ -1,6 +1,7 @@
 import acuttis_point/audit
 import acuttis_point/balance
 import acuttis_point/clock
+import acuttis_point/holiday
 import gleam/list
 
 fn day(raw: String) -> clock.Date {
@@ -32,11 +33,25 @@ fn month(
 }
 
 /// The same month, with a folha behind it.
+///
+/// No calendar: what these check is the arithmetic over the receipt, against
+/// FAI's own sheet, and an emenda would add a day that is on no receipt. The
+/// emenda has its own tests below.
 fn carrying(
   entries: List(#(String, List(String))),
   reporting: String,
   today: String,
   carried: Result(balance.Carried, Nil),
+) -> balance.Balance {
+  observing(entries, reporting, today, carried, holiday.nothing_off())
+}
+
+fn observing(
+  entries: List(#(String, List(String))),
+  reporting: String,
+  today: String,
+  carried: Result(balance.Carried, Nil),
+  calendar: holiday.Calendar,
 ) -> balance.Balance {
   balance.for_month(
     days: audit.audit(rows: rows(entries), today: day(today)).days,
@@ -47,6 +62,7 @@ fn carrying(
     min_lunch_minutes: min_lunch,
     limit_minutes: 2400,
     carried: carried,
+    calendar: calendar,
   )
 }
 
@@ -285,4 +301,87 @@ pub fn zero_carries_a_sign_test() {
   assert balance.signed(0) == "+0h00"
   assert balance.signed(-1) == "-0h01"
   assert balance.duration(480) == "8h00"
+}
+
+// --- The emenda ---------------------------------------------------------------
+// FAI grants the working day between a holiday and the weekend, and the hours
+// come back afterwards. Nothing about that day is on the receipt — nobody came
+// in, so nobody made a marking — which is exactly why it has to be derived, and
+// why leaving it out made the extra hours worked to repay it read as credit.
+
+fn fai() -> holiday.Calendar {
+  holiday.Calendar(national: True, local: [], declared: [], bridges: True)
+}
+
+/// June 2026: Corpus Christi is Thursday the 4th, so Friday the 5th is an
+/// emenda, and the whole contractual day is owed.
+pub fn an_emenda_owes_a_contractual_day_test() {
+  let june =
+    observing(
+      [#("30/06/2026", ["08:00", "12:00", "13:00", "17:00"])],
+      "2026-06-30",
+      "2026-06-30",
+      Error(Nil),
+      fai(),
+    )
+
+  assert june.bridged == [day("2026-06-05")]
+  assert balance.owed(june) == daily
+}
+
+/// The whole point. The day worked long to repay the emenda is credit on the
+/// receipt, and netting the two is the only way the bank reads true.
+pub fn the_hours_repaying_an_emenda_are_not_credit_test() {
+  // Nine hours: an hour over the contractual day, banked in full. Reported
+  // from the day after, because today is always left out as unfinished.
+  let entries = [#("30/06/2026", ["08:00", "12:00", "13:00", "18:00"])]
+  let without =
+    observing(
+      entries,
+      "2026-06-30",
+      "2026-07-01",
+      Error(Nil),
+      holiday.nothing_off(),
+    )
+  let with_emenda =
+    observing(entries, "2026-06-30", "2026-07-01", Error(Nil), fai())
+
+  // The receipt's own two columns do not move: they are FAI's, and they still
+  // read against FAI's sheet.
+  assert balance.credit(with_emenda) == balance.credit(without)
+  assert balance.debit(with_emenda) == balance.debit(without)
+
+  // The bank does move, by exactly the day that was taken.
+  assert balance.difference(without) == 60
+  assert balance.difference(with_emenda) == 60 - daily
+}
+
+/// An emenda still ahead is not a hole in the bank: nothing has been taken yet,
+/// so nothing is owed yet.
+pub fn an_emenda_still_ahead_owes_nothing_test() {
+  let early = observing([], "2026-06-01", "2026-06-01", Error(Nil), fai())
+  assert early.bridged == []
+  assert balance.owed(early) == 0
+}
+
+/// A holiday is paid and owes nothing. Only the emenda is a debt.
+pub fn a_holiday_itself_owes_nothing_test() {
+  // September 2026: Independence is Monday the 7th, already against the
+  // weekend, so it bridges nothing at all.
+  let september = observing([], "2026-09-30", "2026-09-30", Error(Nil), fai())
+  assert september.bridged == []
+  assert balance.owed(september) == 0
+}
+
+/// And it reaches the whole bank, which is what the forty hour limit is about.
+pub fn the_emenda_reaches_the_accumulated_bank_test() {
+  let june =
+    observing(
+      [],
+      "2026-06-30",
+      "2026-06-30",
+      Ok(balance.Carried(year: 2026, month: 5, minutes: 851)),
+      fai(),
+    )
+  assert balance.accumulated(june) == Ok(851 - daily)
 }

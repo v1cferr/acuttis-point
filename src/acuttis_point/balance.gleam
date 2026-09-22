@@ -34,8 +34,10 @@
 
 import acuttis_point/audit
 import acuttis_point/clock
+import acuttis_point/holiday
 import gleam/int
 import gleam/list
+import gleam/order
 
 /// FAI's rule on consecutive work: no period may exceed five hours. Monitored by
 /// the coordinator rather than enforced by the system — 27/07 (5h01) and 30/07
@@ -92,6 +94,14 @@ pub type Balance {
     /// some other month — the months between it and this one are unknown here,
     /// and adding it across them would invent them.
     carried_minutes: Result(Int, Nil),
+    /// The emendas of this month that have already happened. Each one is a
+    /// whole contractual day nobody worked and everybody owes: FAI grants the
+    /// day and the hours come back later.
+    ///
+    /// They are here rather than among the measured days because they are not
+    /// on the receipt and never will be — there is no marking to read on a day
+    /// nobody came in.
+    bridged: List(clock.Date),
   )
 }
 
@@ -109,6 +119,7 @@ pub fn for_month(
   min_lunch_minutes min_lunch_minutes: Int,
   limit_minutes limit_minutes: Int,
   carried carried: Result(Carried, Nil),
+  calendar calendar: holiday.Calendar,
 ) -> Balance {
   let judged =
     days
@@ -131,7 +142,39 @@ pub fn for_month(
     unmeasurable: list.filter(judged, fn(day) { !is_measured(day) }),
     limit_minutes: limit_minutes,
     carried_minutes: carried_into(carried, month_of),
+    bridged: bridged_so_far(calendar, month_of, today),
   )
+}
+
+/// The emendas of this month up to and including today. An emenda still ahead
+/// is not a hole in the bank yet: nothing has been taken, so nothing is owed.
+fn bridged_so_far(
+  calendar: holiday.Calendar,
+  month_of: clock.Date,
+  today: clock.Date,
+) -> List(clock.Date) {
+  holiday.without_expedient(
+    calendar: calendar,
+    year: clock.year(month_of),
+    month: clock.month(month_of),
+  )
+  |> list.filter_map(fn(entry) {
+    let #(date, reason) = entry
+    case reason, clock.compare(date, today) {
+      holiday.Bridge(..), order.Lt | holiday.Bridge(..), order.Eq -> Ok(date)
+      _, _ -> Error(Nil)
+    }
+  })
+}
+
+/// The hours the emendas of this month owe: a whole contractual day each.
+///
+/// FAI grants the day between a holiday and the weekend and takes the hours
+/// back afterwards, so an emenda is a debt rather than a gift. Left out, the
+/// extra hours worked to repay one read as pure credit, and the bank looks
+/// better than it is by a working day every time.
+pub fn owed(balance: Balance) -> Int {
+  list.length(balance.bridged) * balance.daily_minutes
 }
 
 /// The carried figure, but only when it closes the month immediately before the
@@ -167,9 +210,15 @@ pub fn debit(balance: Balance) -> Int {
   banked(balance) |> list.filter(fn(one) { one < 0 }) |> sum |> int.negate
 }
 
-/// Credit minus debit: the month's movement in the bank.
+/// What the month actually moved the bank by: credit, less debit, less the
+/// emendas it owes.
+///
+/// `credit` and `debit` are the receipt's own two columns and stay that way, so
+/// they can still be read against FAI's "Banco Horas Créd" and "Déb". The
+/// emenda is not on the receipt and belongs to neither, but it moved the bank
+/// all the same.
 pub fn difference(balance: Balance) -> Int {
-  credit(balance) - debit(balance)
+  credit(balance) - debit(balance) - owed(balance)
 }
 
 /// Worked minutes, net of any shortfall. Not the bank — the hours themselves.
@@ -262,6 +311,10 @@ pub fn to_line(balance: Balance) -> String {
   <> duration(credit(balance))
   <> " debit="
   <> duration(debit(balance))
+  <> " emenda="
+  <> int.to_string(list.length(balance.bridged))
+  <> "d/"
+  <> duration(owed(balance))
   <> " balance="
   <> signed(difference(balance))
   <> " daily="

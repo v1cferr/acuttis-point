@@ -280,6 +280,17 @@ fn hours(month: balance.Balance) -> String {
     days ->
       ", fora " <> int.to_string(list.length(days)) <> " sem par para medir"
   }
+  // The emenda is in that figure and is on no receipt, so it says so: a day
+  // nobody worked and everybody owes is not something to find out from a folha.
+  <> case month.bridged {
+    [] -> ""
+    days ->
+      " (já descontando "
+      <> balance.duration(balance.owed(month))
+      <> " de "
+      <> int.to_string(list.length(days))
+      <> " emenda(s))"
+  }
   <> ". "
   <> case balance.accumulated(month) {
     Ok(whole) -> "Acumulado: " <> balance.signed(whole) <> ", sobram "

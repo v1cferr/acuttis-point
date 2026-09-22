@@ -91,6 +91,7 @@ pub fn main() -> Nil {
             min_lunch_minutes: setup.settings.min_lunch_minutes,
             limit_minutes: setup.settings.compensation_limit_minutes,
             carried: setup.settings.carried_bank,
+            calendar: setup.settings.calendar,
           )
           |> promise.await(fn(inspected) {
             io.println(timesheet.to_line(inspected))

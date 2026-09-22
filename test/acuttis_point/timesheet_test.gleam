@@ -2,6 +2,7 @@ import acuttis_point/audit
 import acuttis_point/browser
 import acuttis_point/clock
 import acuttis_point/credentials
+import acuttis_point/holiday
 import acuttis_point/notification
 import acuttis_point/report
 import acuttis_point/timesheet
@@ -76,6 +77,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     min_lunch_minutes: 60,
     limit_minutes: 2400,
     carried: Error(Nil),
+    calendar: holiday.nothing_off(),
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = first
@@ -99,6 +101,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     min_lunch_minutes: 60,
     limit_minutes: 2400,
     carried: Error(Nil),
+    calendar: holiday.nothing_off(),
   ))
 
   let assert timesheet.Audited(audited: still, fresh: [], ..) = again
@@ -130,6 +133,7 @@ pub fn today_is_never_announced_test() {
     min_lunch_minutes: 60,
     limit_minutes: 2400,
     carried: Error(Nil),
+    calendar: holiday.nothing_off(),
   ))
 
   assert timesheet.exit_code(midday) == 0
@@ -150,6 +154,7 @@ pub fn the_notification_names_the_dates_test() {
     min_lunch_minutes: 60,
     limit_minutes: 2400,
     carried: Error(Nil),
+    calendar: holiday.nothing_off(),
   ))
 
   let message = notification.from_inspection(inspected)
@@ -193,6 +198,7 @@ pub fn a_clean_history_says_so_quietly_test() {
     min_lunch_minutes: 60,
     limit_minutes: 2400,
     carried: Error(Nil),
+    calendar: holiday.nothing_off(),
   ))
 
   assert timesheet.exit_code(inspected) == 0
@@ -223,6 +229,7 @@ pub fn a_receipt_that_cannot_be_read_is_not_a_clean_history_test() {
     min_lunch_minutes: 60,
     limit_minutes: 2400,
     carried: Error(Nil),
+    calendar: holiday.nothing_off(),
   ))
 
   let assert timesheet.Unreadable(stage:, ..) = inspected
@@ -266,6 +273,7 @@ pub fn the_oldest_day_is_never_judged_test() {
     min_lunch_minutes: 60,
     limit_minutes: 2400,
     carried: Error(Nil),
+    calendar: holiday.nothing_off(),
   ))
 
   let assert timesheet.Audited(audited:, fresh:, ..) = inspected
