@@ -200,6 +200,39 @@ holiday it hangs off:
 A day merely declared off in `SKIP_DATES` bridges nothing. Leave is not a
 holiday, and nobody emendas a vacation.
 
+### And when the calendar is wrong
+
+Every rule above is a claim about what FAI does, and a claim can be wrong — an
+emenda nobody took, a municipal holiday the foundation worked through. Being
+wrong that way is silent, which makes it worse than the failure it replaced:
+four punches nobody made, nobody was told about, and Gestão de Pessoas finds
+three weeks later.
+
+So a day without expedient asks, once:
+
+```
+Hoje não tem expediente, certo?
+25/12/2026 é feriado: Natal. Não vou bater nada. Se você for trabalhar hoje,
+toque e eu passo a tratar hoje como dia normal.                [Vou trabalhar]
+```
+
+Quiet, and one button. On almost every day it goes out the right answer is to
+ignore it — it is Christmas, and the calendar was right — so it has to read as
+something safe to leave alone. The button is for the other case.
+
+Tapping it publishes `working <token>` to the command topic. The listener
+records the day in `EXPEDIENT_FILE`, where it beats every rule in the calendar,
+and the run carries straight on to ask about the punch the normal way. **It does
+not punch.** The answer says what kind of day it is; the punch token still says
+whether to punch, so the one thing that authorises a punch is still the one
+thing that does.
+
+The token is there for the same reason the punch token is. Whoever learns the
+command topic can publish to it, and an unauthenticated "today is a working day"
+would let a stranger have the deadline punch on Christmas. An answer to a
+question nobody asked is refused, and refusing reads a local file and sends a
+message — no Acuttis, no browser, no tunnel.
+
 ### The hour bank, by their rules
 
 The bank is not arithmetic of one's own, and finding that out cost a wrong number

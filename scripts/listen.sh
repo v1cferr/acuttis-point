@@ -63,10 +63,21 @@ curl --silent --no-buffer --show-error "$command_url/json" |
 
     message="$(jq -r '.message // ""' <<<"$line" 2>/dev/null || echo "")"
 
-    # One shape only, and the token pattern is the one `pending` mints. Anything
-    # else on this topic is noise, and noise must not reach a browser.
-    if [[ ! "$message" =~ ^punch[[:space:]]+([a-z0-9]{6,64})$ ]]; then
-      echo "listen: ignoring a message that is not a punch command"
+    # Two shapes only, and the token pattern is the one `pending` mints.
+    # Anything else on this topic is noise, and noise must not reach a browser.
+    #
+    #   punch <token>    spend an offer and register the punch
+    #   working <token>  answer today's calendar question: there IS expediente
+    #
+    # The second one carries a token for the same reason the first does. Whoever
+    # learns this topic can publish to it, and an unauthenticated "today is a
+    # working day" would let a stranger have the deadline punch on Christmas.
+    if [[ "$message" =~ ^punch[[:space:]]+([a-z0-9]{6,64})$ ]]; then
+      kind="punch"
+    elif [[ "$message" =~ ^working[[:space:]]+([a-z0-9]{6,64})$ ]]; then
+      kind="working"
+    else
+      echo "listen: ignoring a message that is not a command"
       continue
     fi
 
@@ -85,20 +96,39 @@ curl --silent --no-buffer --show-error "$command_url/json" |
     # It still runs, though. A tap that does nothing and says nothing is how
     # somebody ends up at the totem in the building making a second marking, so
     # every tap gets an answer.
-    pending_file="$(env_value PENDING_FILE)"
-    pending_file="$REPO/${pending_file:-state/pending.json}"
-    if grep -qxF "token=$token" "$pending_file" 2>/dev/null; then
-      echo "listen: a tap arrived, spending its token"
+    case "$kind" in
+      punch)
+        pending_file="$(env_value PENDING_FILE)"
+        pending_file="$REPO/${pending_file:-state/pending.json}"
+        known="$(grep -qxF "token=$token" "$pending_file" 2>/dev/null && echo yes)"
+        ;;
+      working)
+        questions_file="$(env_value QUESTIONS_FILE)"
+        questions_file="$REPO/${questions_file:-state/questions.txt}"
+        known="$(grep -qE "=$token\$" "$questions_file" 2>/dev/null && echo yes)"
+        ;;
+    esac
+
+    if [[ -n "$known" ]]; then
+      echo "listen: a tap arrived ($kind), running it through the tunnel"
       how="$runner"
     else
       echo "listen: nothing is waiting for that token, answering without a tunnel"
       how="$REPO/state/current/bin/acuttis-point"
     fi
 
+    # An answered calendar question does not punch. It records that today has
+    # expediente after all and then asks about the punch the normal way, so the
+    # one thing that authorises a punch is still the one thing that does.
+    declare -a how_env=("ACUTTIS_BINARY=$REPO/state/current/bin/acuttis-point")
+    case "$kind" in
+      punch) how_env+=("CLAIM_TOKEN=$token") ;;
+      working) how_env+=("ANSWER_TOKEN=$token" "ASK=true") ;;
+    esac
+
     # Never fatal: a punch that fails has already said so, on the phone and in
     # the journal, and this process has to survive to hear the next tap.
-    CLAIM_TOKEN="$token" ACUTTIS_BINARY="$REPO/state/current/bin/acuttis-point" \
-      "$how" || echo "listen: that punch did not go through"
+    env "${how_env[@]}" "$how" || echo "listen: that $kind did not go through"
   done
 
 # Reached only when the stream closes, which is a restart rather than an end.

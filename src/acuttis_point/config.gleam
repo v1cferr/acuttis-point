@@ -45,6 +45,17 @@ pub type Config {
     /// calendar above; missing is not an error, it just leaves the derived
     /// national holidays on their own.
     local_holidays_file: String,
+    /// Days the calendar called off and a human said had expedient after all,
+    /// one `YYYY-MM-DD` per line. Written by an answered question.
+    expedient_file: String,
+    /// The questions already asked, so a day off is asked about once rather
+    /// than at every window of it.
+    questions_file: String,
+    /// Ask, on a day without expedient, whether the calendar got it right.
+    /// Off makes such a day silent again.
+    ask_about_calendar: Bool,
+    /// This run is carrying the answer to one of those questions.
+    answer: Result(String, Nil),
     /// Decide and log, but never touch Acuttis.
     dry_run: Bool,
     /// How long any single browser step may take.
@@ -161,6 +172,10 @@ const default_announced_file = "state/announced.txt"
 
 const default_local_holidays_file = "state/local-holidays.txt"
 
+const default_expedient_file = "state/expedient.txt"
+
+const default_questions_file = "state/questions.txt"
+
 /// Forty hours, which is FAI's limite de compensação.
 const default_compensation_limit_minutes = 2400
 
@@ -214,6 +229,10 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   let announced_file = lookup_or(env, "ANNOUNCED_FILE", default_announced_file)
   let local_holidays_file =
     lookup_or(env, "LOCAL_HOLIDAYS_FILE", default_local_holidays_file)
+  let expedient_file = lookup_or(env, "EXPEDIENT_FILE", default_expedient_file)
+  let questions_file = lookup_or(env, "QUESTIONS_FILE", default_questions_file)
+  use ask_about_calendar <- result.try(boolean(env, "ASK_ABOUT_CALENDAR", True))
+  let answer = optional(env, "ANSWER_TOKEN")
   use claim_deadline <- result.try(boolean(env, "CLAIM_DEADLINE", False))
   use claim <- result.try(case optional(env, "CLAIM_TOKEN"), claim_deadline {
     Ok(_), True -> Error(ConflictingClaim)
@@ -274,6 +293,10 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     timezone:,
     calendar:,
     local_holidays_file:,
+    expedient_file:,
+    questions_file:,
+    ask_about_calendar:,
+    answer:,
     dry_run:,
     timeout_seconds:,
     headless:,
@@ -631,13 +654,16 @@ fn calendar(
   use local <- result.try(named_date_list(env, "LOCAL_HOLIDAYS"))
   use declared <- result.try(date_list(env, "SKIP_DATES"))
 
-  Ok(holiday.Calendar(
-    national: national,
-    annual: annual,
-    local: local,
-    declared: declared,
-    bridges: bridges,
-  ))
+  Ok(
+    holiday.Calendar(
+      national: national,
+      annual: annual,
+      local: local,
+      declared: declared,
+      bridges: bridges,
+      with_expedient: [],
+    ),
+  )
 }
 
 /// `MM-DD=Name`, comma separated: a holiday on the same date every year.

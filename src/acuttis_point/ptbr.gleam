@@ -15,6 +15,7 @@ import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/holiday
 import acuttis_point/punch
+import acuttis_point/question
 import acuttis_point/report
 import acuttis_point/state
 import gleam/int
@@ -106,7 +107,7 @@ pub fn registered(marks: List(state.Registered)) -> String {
 pub fn skip_reason(reason: decision.SkipReason) -> String {
   case reason {
     decision.NotAWorkDay(day) -> "hoje é " <> weekday(day) <> ", não é dia útil"
-    decision.NonWorkingDate(date:, reason:) -> non_working(date, reason)
+    decision.NonWorkingDate(date:, reason:) -> without_expedient(date, reason)
     decision.DayAlreadyComplete -> "o dia já está completo"
     decision.AlreadyRegistered(punch: target, at:) ->
       punch_with_article(target) <> " já consta às " <> clock.time_to_string(at)
@@ -120,7 +121,7 @@ pub fn skip_reason(reason: decision.SkipReason) -> String {
 /// The emenda says which holiday it hangs off, because that is the sentence
 /// that lets its reader check it: "quinta foi feriado, então hoje não tem" is
 /// verifiable, and "hoje não tem expediente" is not.
-fn non_working(date: clock.Date, reason: holiday.Reason) -> String {
+pub fn without_expedient(date: clock.Date, reason: holiday.Reason) -> String {
   case reason {
     holiday.Observed(which) ->
       clock.date_to_dmy(date) <> " é feriado: " <> holiday_name(which)
@@ -151,6 +152,20 @@ pub fn holiday_name(which: holiday.Holiday) -> String {
     // Already in Portuguese: it arrived from the configuration, written by the
     // person who will read it back.
     holiday.Local(name:) -> name
+  }
+}
+
+/// Why an answer to a calendar question was not taken. Every tap gets a reply,
+/// including the ones that could not be honoured.
+pub fn answer_error(error: question.AnswerError) -> String {
+  case error {
+    question.NothingAsked ->
+      "não perguntei nada sobre hoje, então não há o que responder"
+    question.WrongToken -> "essa resposta não corresponde a nenhuma pergunta"
+    question.StaleAnswer(asked_on:) ->
+      "essa é a resposta da pergunta de "
+      <> clock.date_to_dmy(asked_on)
+      <> ", não a de hoje"
   }
 }
 

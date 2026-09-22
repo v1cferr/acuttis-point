@@ -45,6 +45,7 @@ pub fn defaults_cover_everything_but_the_schedule_test() {
       local: [],
       declared: [],
       bridges: True,
+      with_expedient: [],
     )
   assert !loaded.dry_run
 }

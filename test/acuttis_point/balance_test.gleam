@@ -316,6 +316,7 @@ fn fai() -> holiday.Calendar {
     local: [],
     declared: [],
     bridges: True,
+    with_expedient: [],
   )
 }
 

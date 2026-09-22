@@ -32,6 +32,7 @@
 //// off. Leave is not a holiday, and nobody emendas a vacation.
 
 import acuttis_point/clock
+import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/result
@@ -87,13 +88,26 @@ pub type Calendar {
     declared: List(clock.Date),
     /// Take the working day between a holiday and the weekend off as well.
     bridges: Bool,
+    /// Days this calendar called off and a human said otherwise.
+    ///
+    /// Checked before everything else, because it is not another rule: it is
+    /// somebody who was there saying the rules were wrong today. See
+    /// `question`.
+    with_expedient: List(clock.Date),
   )
 }
 
 /// A calendar that skips nothing, for a test or for a deployment that wants the
 /// dates written out by hand.
 pub fn nothing_off() -> Calendar {
-  Calendar(national: False, annual: [], local: [], declared: [], bridges: False)
+  Calendar(
+    national: False,
+    annual: [],
+    local: [],
+    declared: [],
+    bridges: False,
+    with_expedient: [],
+  )
 }
 
 /// Why this day has no expediente, or `Error(Nil)` when it is a working day.
@@ -105,6 +119,11 @@ pub fn observance(
   calendar calendar: Calendar,
   on date: clock.Date,
 ) -> Result(Reason, Nil) {
+  use <- bool.guard(
+    when: list.contains(calendar.with_expedient, date),
+    return: Error(Nil),
+  )
+
   case holiday_on(calendar, date) {
     Ok(holiday) -> Ok(Observed(holiday))
     Error(Nil) ->
@@ -291,6 +310,19 @@ pub fn parse_published(contents: String) -> Published {
   })
 }
 
+/// One `YYYY-MM-DD` per line: the days somebody said had expedient after all.
+/// Comments and blanks ignored, and a line that is not a date is dropped —
+/// what dropping one costs is a day skipped, which is the safe direction.
+pub fn parse_dates(contents: String) -> List(clock.Date) {
+  contents
+  |> string.split(on: "\n")
+  |> list.map(string.trim)
+  |> list.filter(fn(line) { line != "" && !string.starts_with(line, "#") })
+  |> list.filter_map(fn(line) {
+    clock.parse_date(line) |> result.replace_error(Nil)
+  })
+}
+
 /// Whether the published calendar still has anything to say about `year` or
 /// later. A file that stops short is not an error — the national holidays are
 /// derived and keep working — but from there on the municipal and state ones
@@ -348,6 +380,10 @@ pub fn describe(calendar: Calendar) -> String {
     [int.to_string(list.length(calendar.annual)) <> "annual"],
     [int.to_string(list.length(calendar.local)) <> "local"],
     [int.to_string(list.length(calendar.declared)) <> "off"],
+    case calendar.with_expedient {
+      [] -> []
+      days -> [int.to_string(list.length(days)) <> "worked"]
+    },
   ]
   |> list.flatten
   |> string.join("+")

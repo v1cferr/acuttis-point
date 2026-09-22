@@ -15,6 +15,7 @@ fn fai() -> holiday.Calendar {
     local: [],
     declared: [],
     bridges: True,
+    with_expedient: [],
   )
 }
 
@@ -105,6 +106,7 @@ pub fn a_declared_day_off_bridges_nothing_test() {
       local: [],
       declared: [on("2026-06-04")],
       bridges: True,
+      with_expedient: [],
     )
   assert holiday.observance(calendar:, on: on("2026-06-04"))
     == Ok(holiday.Declared)
@@ -189,6 +191,7 @@ pub fn a_published_holiday_is_observed_and_bridges_test() {
         local: [],
         declared: [],
         bridges: True,
+        with_expedient: [],
       ),
       holiday.parse_published(published_file),
     )
@@ -218,6 +221,7 @@ pub fn a_configured_name_wins_over_a_published_one_test() {
         local: [#(on("2026-11-04"), "Aniversário da cidade")],
         declared: [],
         bridges: True,
+        with_expedient: [],
       ),
       holiday.parse_published(published_file),
     )

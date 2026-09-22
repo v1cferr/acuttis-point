@@ -18,10 +18,12 @@ import acuttis_point/audit
 import acuttis_point/balance
 import acuttis_point/clock
 import acuttis_point/decision
+import acuttis_point/holiday
 import acuttis_point/pending
 import acuttis_point/preflight
 import acuttis_point/ptbr
 import acuttis_point/punch
+import acuttis_point/question
 import acuttis_point/report
 import acuttis_point/state
 import acuttis_point/timesheet
@@ -146,6 +148,36 @@ pub fn from_report(record: report.Report) -> Notification {
           )
       }
   }
+}
+
+/// The one notification that asks about the calendar rather than about a punch.
+///
+/// Quiet, and with a single button. On almost every day it goes out the right
+/// answer is to ignore it — it is Christmas, and the calendar was right — so
+/// the message has to read as something safe to leave alone. The button is for
+/// the other case, the one that used to be silent: FAI working through a day
+/// the rules called off.
+pub fn calendar_question(
+  date date: clock.Date,
+  reason reason: holiday.Reason,
+  token token: String,
+) -> Notification {
+  Notification(
+    title: "Hoje não tem expediente, certo?",
+    body: ptbr.without_expedient(date, reason)
+      <> ". Não vou bater nada. Se você for trabalhar hoje, toque e eu passo a"
+      <> " tratar hoje como dia normal.",
+    priority: "low",
+    tags: "calendar",
+    action: Ok(Action(label: "Vou trabalhar", command: "working " <> token)),
+  )
+}
+
+/// An answer that could not be taken. Never silent, for the same reason a
+/// declined punch is not: a tap that does nothing and says nothing is how
+/// somebody ends up at the totem in the building making a second marking.
+pub fn from_refused_answer(error: question.AnswerError) -> Notification {
+  problem("Não consegui aceitar essa resposta", ptbr.answer_error(error))
 }
 
 /// A rehearsal is worth hearing about either way: "ready" is the reassurance
