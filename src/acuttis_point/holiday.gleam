@@ -197,6 +197,55 @@ pub fn easter(year: Int) -> Result(clock.Date, clock.ClockError) {
   clock.new_date(year: year, month: offset / 31, day: offset % 31 + 1)
 }
 
+/// A published calendar, as `scripts/calendar.sh` leaves it: one
+/// `YYYY-MM-DD=Name` per line, with `#` comments and blank lines.
+pub type Published {
+  Published(
+    holidays: List(#(clock.Date, String)),
+    /// Lines that are neither blank, a comment, nor a holiday.
+    unreadable: Int,
+  )
+}
+
+/// Read that file.
+///
+/// A line it cannot make sense of is counted, not refused. Refusing would stop
+/// the punches over a calendar file, which is the wrong way round — but a
+/// holiday silently dropped is the exact failure this module exists to prevent,
+/// so the count goes where it can be seen rather than nowhere.
+pub fn parse_published(contents: String) -> Published {
+  contents
+  |> string.split(on: "\n")
+  |> list.map(string.trim)
+  |> list.filter(fn(line) { line != "" && !string.starts_with(line, "#") })
+  |> list.fold(Published(holidays: [], unreadable: 0), fn(found, line) {
+    case string.split_once(line, on: "=") {
+      Error(Nil) -> Published(..found, unreadable: found.unreadable + 1)
+      Ok(#(date, name)) ->
+        case clock.parse_date(date), string.trim(name) {
+          Ok(_), "" | Error(_), _ ->
+            Published(..found, unreadable: found.unreadable + 1)
+          Ok(date), name ->
+            Published(..found, holidays: [#(date, name), ..found.holidays])
+        }
+    }
+  })
+}
+
+/// Whether the published calendar still has anything to say about `year` or
+/// later. A file that stops short is not an error — the national holidays are
+/// derived and keep working — but from there on the municipal and state ones
+/// are missing, which is worth saying before a Wednesday in November.
+pub fn reaches(published: Published, year: Int) -> Bool {
+  list.any(published.holidays, fn(entry) { clock.year(entry.0) >= year })
+}
+
+/// Merge a published calendar into a configured one. What was configured by
+/// hand comes first and so wins the name, because somebody chose it.
+pub fn with_published(calendar: Calendar, published: Published) -> Calendar {
+  Calendar(..calendar, local: list.append(calendar.local, published.holidays))
+}
+
 /// The en-US name, for a log line. What the phone says is `ptbr.holiday_name`.
 pub fn to_string(holiday: Holiday) -> String {
   case holiday {

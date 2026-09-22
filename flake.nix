@@ -34,6 +34,9 @@
           packages = [
             pkgs.gleam
             pkgs.nodejs_22
+            # scripts/calendar.sh reads the published holidays with these.
+            pkgs.curl
+            pkgs.jq
           ];
 
           # Playwright must not download its own browsers: the pinned ones from

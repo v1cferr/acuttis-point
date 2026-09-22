@@ -140,3 +140,82 @@ fn list_length(items: List(a)) -> Int {
     [_, ..rest] -> 1 + list_length(rest)
   }
 }
+
+// --- The published calendar --------------------------------------------------
+// What `scripts/calendar.sh` leaves behind: the state and municipal holidays,
+// which are law rather than arithmetic and cannot be derived from the year.
+
+const published_file = "# Written by scripts/calendar.sh on 2026-09-22.
+#
+
+2026-07-09=Revolução Constitucionalista
+2026-11-04=Aniversário de São Carlos
+"
+
+pub fn a_published_calendar_is_read_past_its_comments_test() {
+  let found = holiday.parse_published(published_file)
+  assert found.unreadable == 0
+  assert found.holidays
+    == [
+      #(on("2026-11-04"), "Aniversário de São Carlos"),
+      #(on("2026-07-09"), "Revolução Constitucionalista"),
+    ]
+}
+
+/// A line nobody can read is counted, never guessed at and never fatal: a
+/// calendar file must not be able to stop the punches.
+pub fn unreadable_lines_are_counted_rather_than_refused_test() {
+  let found =
+    holiday.parse_published(
+      "2026-11-04=Aniversário\nnot a holiday\n2026-13-01=Impossible\n2026-11-05=\n",
+    )
+  assert found.holidays == [#(on("2026-11-04"), "Aniversário")]
+  assert found.unreadable == 3
+}
+
+pub fn a_published_holiday_is_observed_and_bridges_test() {
+  let calendar =
+    holiday.with_published(
+      holiday.Calendar(national: True, local: [], declared: [], bridges: True),
+      holiday.parse_published(published_file),
+    )
+
+  // 09/07/2026 is a Thursday, so the Friday goes with it.
+  assert holiday.observance(calendar:, on: on("2026-07-09"))
+    == Ok(holiday.Observed(holiday.Local("Revolução Constitucionalista")))
+  assert holiday.observance(calendar:, on: on("2026-07-10"))
+    == Ok(holiday.Bridge(
+      holiday: holiday.Local("Revolução Constitucionalista"),
+      date: on("2026-07-09"),
+    ))
+
+  // 04/11/2026 is a Wednesday: off, and bridging nothing.
+  assert holiday.observance(calendar:, on: on("2026-11-04"))
+    == Ok(holiday.Observed(holiday.Local("Aniversário de São Carlos")))
+  assert holiday.observance(calendar:, on: on("2026-11-05")) == Error(Nil)
+}
+
+/// Hand-written wins: somebody chose that name.
+pub fn a_configured_name_wins_over_a_published_one_test() {
+  let calendar =
+    holiday.with_published(
+      holiday.Calendar(
+        national: True,
+        local: [#(on("2026-11-04"), "Aniversário da cidade")],
+        declared: [],
+        bridges: True,
+      ),
+      holiday.parse_published(published_file),
+    )
+  assert holiday.observance(calendar:, on: on("2026-11-04"))
+    == Ok(holiday.Observed(holiday.Local("Aniversário da cidade")))
+}
+
+/// A file that stops before this year still skips every national holiday — it
+/// just no longer knows the municipal ones, and that is worth saying.
+pub fn a_calendar_that_stops_short_is_visible_test() {
+  let found = holiday.parse_published(published_file)
+  assert holiday.reaches(found, 2026)
+  assert !holiday.reaches(found, 2027)
+  assert holiday.reaches(holiday.parse_published(""), 2026) == False
+}

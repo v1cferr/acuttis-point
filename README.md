@@ -145,10 +145,31 @@ Easter, computed for whatever year is asked about, from `NATIONAL_HOLIDAYS`.
 Carnival is why a list would not have done: it is not in the same month two
 years running.
 
-What cannot be derived is declared. The municipal and state ones —
-Revolução Constitucionalista, Aniversário de São Carlos — come from
-`LOCAL_HOLIDAYS`, each with the name it is known by, because a notification that
-says the day off is "2026-11-04" explains nothing.
+What cannot be derived is fetched. The municipal and state ones are law rather
+than arithmetic — one município at a time — so `scripts/calendar.sh` reads them
+from a published list and writes them where the program will find them:
+
+```sh
+./scripts/calendar.sh          # refresh, and say what it wrote
+./scripts/calendar.sh --check  # say whether it is current, write nothing
+```
+
+```
+2026-04-03=Paixão de Cristo
+2026-06-04=Corpus Christi
+2026-07-09=Revolução Constitucionalista
+2026-08-15=Nossa Senhora da Babilônia
+2026-11-04=Aniversário de São Carlos
+```
+
+Nothing in the punch path touches the network, and that is deliberate: a holiday
+API that is slow or down at 07:51 must not get a say in whether a punch happens.
+The file is the contract. One that is a year stale still skips every national
+holiday correctly — it has just stopped knowing the municipal ones, which the
+run says out loud rather than leaving to be discovered on a Wednesday in
+November. The write is atomic and refuses to leave less than it found, so a
+fetch that half worked keeps the previous file instead of quietly dropping a
+holiday. A date can still be pinned by hand in `LOCAL_HOLIDAYS`, which wins.
 
 And FAI emendas: the working day left standing between a holiday and the weekend
 goes too. Thursday's holiday costs the Friday, Tuesday's costs the Monday, and a

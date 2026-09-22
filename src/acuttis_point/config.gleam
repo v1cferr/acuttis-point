@@ -40,6 +40,11 @@ pub type Config {
     /// Which days have no expedient: the holidays that can be derived, the
     /// ones that cannot, FAI's emenda, and whatever is declared by hand.
     calendar: holiday.Calendar,
+    /// Where `scripts/calendar.sh` leaves the holidays that cannot be derived —
+    /// the municipal and state ones. Read at startup and merged into the
+    /// calendar above; missing is not an error, it just leaves the derived
+    /// national holidays on their own.
+    local_holidays_file: String,
     /// Decide and log, but never touch Acuttis.
     dry_run: Bool,
     /// How long any single browser step may take.
@@ -154,6 +159,8 @@ const default_pending_file = "state/pending.json"
 
 const default_announced_file = "state/announced.txt"
 
+const default_local_holidays_file = "state/local-holidays.txt"
+
 /// Forty hours, which is FAI's limite de compensação.
 const default_compensation_limit_minutes = 2400
 
@@ -205,6 +212,8 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use ask <- result.try(boolean(env, "ASK", False))
   use audit <- result.try(boolean(env, "AUDIT", False))
   let announced_file = lookup_or(env, "ANNOUNCED_FILE", default_announced_file)
+  let local_holidays_file =
+    lookup_or(env, "LOCAL_HOLIDAYS_FILE", default_local_holidays_file)
   use claim_deadline <- result.try(boolean(env, "CLAIM_DEADLINE", False))
   use claim <- result.try(case optional(env, "CLAIM_TOKEN"), claim_deadline {
     Ok(_), True -> Error(ConflictingClaim)
@@ -264,6 +273,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     min_lunch_minutes:,
     timezone:,
     calendar:,
+    local_holidays_file:,
     dry_run:,
     timeout_seconds:,
     headless:,

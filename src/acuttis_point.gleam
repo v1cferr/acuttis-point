@@ -10,6 +10,7 @@ import acuttis_point/clock
 import acuttis_point/config
 import acuttis_point/credentials
 import acuttis_point/discovery
+import acuttis_point/holiday
 import acuttis_point/notification
 import acuttis_point/pending
 import acuttis_point/playwright
@@ -21,6 +22,7 @@ import acuttis_point/selectors
 import acuttis_point/system
 import acuttis_point/timesheet
 import gleam/dict.{type Dict}
+import gleam/int
 import gleam/io
 import gleam/javascript/promise
 import gleam/result
@@ -186,6 +188,47 @@ fn setup(env: Dict(String, String)) -> Result(Setup, String) {
     system.now(settings.timezone)
     |> result.map_error(system.error_to_string),
   )
+
+  // The holidays that cannot be derived, as `scripts/calendar.sh` left them.
+  // Read here rather than in `config`, which stays a pure function of the
+  // environment — and read from a FILE rather than from the network, because
+  // an API that is slow at 07:51 must not get a say in whether a punch happens.
+  let published =
+    holiday.parse_published(system.read_or_empty(settings.local_holidays_file))
+  let settings =
+    config.Config(
+      ..settings,
+      calendar: holiday.with_published(settings.calendar, published),
+    )
+
+  case holiday.reaches(published, clock.year(now.date)), published.unreadable {
+    True, 0 -> Nil
+    reaches, unreadable -> {
+      case reaches {
+        True -> Nil
+        False ->
+          io.println(
+            "acuttis-point: "
+            <> settings.local_holidays_file
+            <> " has no holiday in "
+            <> int.to_string(clock.year(now.date))
+            <> " or later; the municipal and state ones are missing until"
+            <> " scripts/calendar.sh is run again",
+          )
+      }
+      case unreadable {
+        0 -> Nil
+        count ->
+          io.println(
+            "acuttis-point: "
+            <> int.to_string(count)
+            <> " line(s) of "
+            <> settings.local_holidays_file
+            <> " could not be read and were ignored",
+          )
+      }
+    }
+  }
 
   Ok(Setup(
     settings: settings,
