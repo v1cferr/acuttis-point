@@ -84,10 +84,16 @@ pub type Config {
     /// schedule unless set, so there is one place the day's shape is written
     /// down — but a contract is a contract, and DAILY_MINUTES overrides it.
     daily_minutes: Int,
-    /// The most the hour bank may hold either way — FAI calls it the limite de
-    /// compensação, and it is 40 hours. Reported, not enforced: nothing here can
-    /// stop hours accumulating.
+    /// The most the hour bank may hold either way. Reported, not enforced:
+    /// nothing here can stop hours accumulating.
+    ///
+    /// FAI's own limite de compensação is 40 hours, and this is not that
+    /// number. On 2026-10 the coordinator asked for ten either way, and of two
+    /// ceilings the tighter one is the one that applies.
     compensation_limit_minutes: Int,
+    /// Past this the bank is not a number to watch any more. Double the
+    /// ceiling, by default.
+    bank_alarm_minutes: Int,
     /// Where the bank stood when FAI last closed a folha, and which month that
     /// folha closes. Their sheet is the only record of the months the receipt no
     /// longer reaches, so without it the room left against the limit is only
@@ -176,8 +182,14 @@ const default_expedient_file = "state/expedient.txt"
 
 const default_questions_file = "state/questions.txt"
 
-/// Forty hours, which is FAI's limite de compensação.
-const default_compensation_limit_minutes = 2400
+/// Ten hours. FAI's own limite de compensação is forty, and this is not that:
+/// on 2026-10 the coordinator asked for ten either way, and the tighter of two
+/// ceilings is the one that applies.
+const default_compensation_limit_minutes = 600
+
+/// Twenty hours: double the ceiling, and the point at which the bank stops
+/// being a number to watch.
+const default_bank_alarm_minutes = 1200
 
 /// Five hours, which is FAI's limit on working without a break: "garantir que a
 /// carga de trabalho não exceda 5 horas consecutivas em ambos os períodos".
@@ -274,6 +286,13 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     // A thousand hours. Past that it is not a compensation limit.
     60_000,
   ))
+  use bank_alarm_minutes <- result.try(bounded_int(
+    env,
+    "BANK_ALARM_MINUTES",
+    default_bank_alarm_minutes,
+    0,
+    60_000,
+  ))
   use carried_bank <- result.try(carried_bank(env))
   use daily_minutes <- result.try(bounded_int(
     env,
@@ -308,6 +327,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     audit:,
     daily_minutes:,
     compensation_limit_minutes:,
+    bank_alarm_minutes:,
     carried_bank:,
     announced_file:,
     screenshot_dir:,

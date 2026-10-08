@@ -87,8 +87,16 @@ pub type Balance {
     min_lunch_minutes: Int,
     measured: List(DayHours),
     unmeasurable: List(DayHours),
-    /// The most the bank may hold either way: FAI's limite de compensação.
+    /// The most the bank may hold either way.
+    ///
+    /// FAI's own limite de compensação is forty hours, and that is not this
+    /// number. On 2026-10 the coordinator set ten, and a tighter ceiling is
+    /// the one that applies: being inside FAI's rule and outside his is still
+    /// being outside.
     limit_minutes: Int,
+    /// Past this, the bank is not a number to watch any more. Far enough over
+    /// the ceiling to need a conversation rather than a few shorter days.
+    alarm_minutes: Int,
     /// What the folha carried into this month, when the one configured closes
     /// the month before it. `Error(Nil)` when there is none, or when it closes
     /// some other month — the months between it and this one are unknown here,
@@ -118,6 +126,7 @@ pub fn for_month(
   tolerance_minutes tolerance_minutes: Int,
   min_lunch_minutes min_lunch_minutes: Int,
   limit_minutes limit_minutes: Int,
+  alarm_minutes alarm_minutes: Int,
   carried carried: Result(Carried, Nil),
   calendar calendar: holiday.Calendar,
 ) -> Balance {
@@ -141,6 +150,7 @@ pub fn for_month(
     measured: list.filter(judged, is_measured),
     unmeasurable: list.filter(judged, fn(day) { !is_measured(day) }),
     limit_minutes: limit_minutes,
+    alarm_minutes: alarm_minutes,
     carried_minutes: carried_into(carried, month_of),
     bridged: bridged_so_far(calendar, month_of, today),
   )
@@ -246,19 +256,56 @@ pub fn accumulated(balance: Balance) -> Result(Int, Nil) {
   }
 }
 
-/// How much of the compensation limit the bank has not used.
+/// Where the bank stands now, signed.
 ///
-/// Measured against the whole bank when the folha says where it stood, and
-/// against this month alone when it does not — which reads as more room than
-/// there is, never less, because the earlier months are still in the bank. That
-/// is the wrong direction to be wrong in, and it is why the carried figure
-/// exists.
-pub fn room_left(balance: Balance) -> Int {
-  let used = case accumulated(balance) {
-    Ok(whole) -> int.absolute_value(whole)
-    Error(Nil) -> int.absolute_value(difference(balance))
+/// The whole bank when the folha says where it stood, and this month alone when
+/// it does not — which reads as less bank than there is, never more, because
+/// the earlier months are still in it. That is the wrong direction to be wrong
+/// in, and it is why the carried figure exists.
+pub fn standing_minutes(balance: Balance) -> Int {
+  case accumulated(balance) {
+    Ok(whole) -> whole
+    Error(Nil) -> difference(balance)
   }
-  int.max(0, balance.limit_minutes - used)
+}
+
+/// How the bank reads against the ceiling. Green, yellow, red.
+pub type Standing {
+  /// Inside the ceiling. Nothing to do.
+  Within
+  /// Over it. The way back is a run of shorter days, and the sooner the
+  /// shorter they have to be.
+  Over
+  /// Far enough over that shorter days will not do it quietly.
+  Alarming
+}
+
+pub fn standing(balance: Balance) -> Standing {
+  let held = int.absolute_value(standing_minutes(balance))
+
+  case held <= balance.limit_minutes, held >= balance.alarm_minutes {
+    True, _ -> Within
+    _, True -> Alarming
+    _, _ -> Over
+  }
+}
+
+/// How much of the ceiling the bank has not used. Zero once it is over, which
+/// is honest: there is no room left, there is a debt to work off.
+pub fn room_left(balance: Balance) -> Int {
+  int.max(
+    0,
+    balance.limit_minutes - int.absolute_value(standing_minutes(balance)),
+  )
+}
+
+/// How far past the ceiling the bank is, and so how much has to come back off
+/// it. Zero while it is inside.
+pub fn over_by(balance: Balance) -> Int {
+  int.max(
+    0,
+    int.absolute_value(standing_minutes(balance)) - balance.limit_minutes,
+  )
 }
 
 /// Whether another month like this one would put the bank past the limit.
@@ -334,6 +381,20 @@ pub fn to_line(balance: Balance) -> String {
   <> duration(room_left(balance))
   <> " limit="
   <> duration(balance.limit_minutes)
+  <> " standing="
+  <> standing_to_string(standing(balance))
+  <> case over_by(balance) {
+    0 -> ""
+    over -> " over_by=" <> duration(over)
+  }
+}
+
+pub fn standing_to_string(how: Standing) -> String {
+  case how {
+    Within -> "within"
+    Over -> "over"
+    Alarming -> "alarming"
+  }
 }
 
 /// What each measured day put into the bank, signed.

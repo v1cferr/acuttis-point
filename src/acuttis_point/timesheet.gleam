@@ -49,6 +49,7 @@ pub fn inspect(
   tolerance_minutes tolerance_minutes: Int,
   min_lunch_minutes min_lunch_minutes: Int,
   limit_minutes limit_minutes: Int,
+  alarm_minutes alarm_minutes: Int,
   carried carried: Result(balance.Carried, Nil),
   calendar calendar: holiday.Calendar,
 ) -> Promise(Inspection) {
@@ -68,6 +69,7 @@ pub fn inspect(
         tolerance_minutes,
         min_lunch_minutes,
         limit_minutes,
+        alarm_minutes,
         carried,
         calendar,
       ))
@@ -173,6 +175,7 @@ fn read(
   tolerance_minutes: Int,
   min_lunch_minutes: Int,
   limit_minutes: Int,
+  alarm_minutes: Int,
   carried: Result(balance.Carried, Nil),
   calendar: holiday.Calendar,
 ) -> Promise(Inspection) {
@@ -203,6 +206,7 @@ fn read(
               tolerance_minutes: tolerance_minutes,
               min_lunch_minutes: min_lunch_minutes,
               limit_minutes: limit_minutes,
+              alarm_minutes: alarm_minutes,
               carried: carried,
               calendar: calendar,
             ),

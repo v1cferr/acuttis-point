@@ -76,6 +76,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    alarm_minutes: 1200,
     carried: Error(Nil),
     calendar: holiday.nothing_off(),
   ))
@@ -100,6 +101,7 @@ pub fn a_day_that_does_not_add_up_is_announced_once_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    alarm_minutes: 1200,
     carried: Error(Nil),
     calendar: holiday.nothing_off(),
   ))
@@ -132,6 +134,7 @@ pub fn today_is_never_announced_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    alarm_minutes: 1200,
     carried: Error(Nil),
     calendar: holiday.nothing_off(),
   ))
@@ -153,6 +156,7 @@ pub fn the_notification_names_the_dates_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    alarm_minutes: 1200,
     carried: Error(Nil),
     calendar: holiday.nothing_off(),
   ))
@@ -196,7 +200,8 @@ pub fn a_clean_history_says_so_quietly_test() {
     daily_minutes: 480,
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
-    limit_minutes: 2400,
+    limit_minutes: 600,
+    alarm_minutes: 1200,
     carried: Error(Nil),
     calendar: holiday.nothing_off(),
   ))
@@ -204,15 +209,17 @@ pub fn a_clean_history_says_so_quietly_test() {
   assert timesheet.exit_code(inspected) == 0
   let message = notification.from_inspection(inspected)
   assert message.title == "Histórico conferido"
+  // Green: inside the ceiling, so it arrives without a sound.
   assert message.priority == "low"
+  assert message.tags == "green_circle"
   // And the month's hours, which is the other thing worth knowing when the news
   // is that there is no news.
   // 08:00 to 12:00 and 13:00 to 17:30 is 8h30 against a contract of 8h00, and
   // thirty minutes is past the ten the bank ignores.
   assert message.body
     == "todos os dias fecham. Banco do mês: +0h30 em 1 dia(s)."
-    // No folha configured here, so the room is this month's and says so.
-    <> " Sobram, só deste mês, 39h30 do limite de 40h00"
+    // No folha configured here, so this is only the month, and it says so.
+    <> " Só deste mês: dentro do teto de 10h00."
   promise.resolve(Nil)
 }
 
@@ -228,6 +235,7 @@ pub fn a_receipt_that_cannot_be_read_is_not_a_clean_history_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    alarm_minutes: 1200,
     carried: Error(Nil),
     calendar: holiday.nothing_off(),
   ))
@@ -272,6 +280,7 @@ pub fn the_oldest_day_is_never_judged_test() {
     tolerance_minutes: 10,
     min_lunch_minutes: 60,
     limit_minutes: 2400,
+    alarm_minutes: 1200,
     carried: Error(Nil),
     calendar: holiday.nothing_off(),
   ))

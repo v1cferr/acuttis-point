@@ -218,13 +218,18 @@ pub fn from_inspection(inspection: timesheet.Inspection) -> Notification {
     timesheet.Audited(fresh: [], audited:, month:, ..) ->
       case audited.inconsistent {
         [] ->
-          quiet("Histórico conferido", "todos os dias fecham. " <> hours(month))
+          banked(
+            "Histórico conferido",
+            "todos os dias fecham. " <> hours(month),
+            month,
+          )
         old ->
-          quiet(
+          banked(
             "Histórico conferido",
             int.to_string(list.length(old))
               <> " dia(s) ainda pendente(s) com a GP, nenhum novo. "
               <> hours(month),
+            month,
           )
       }
     timesheet.Audited(fresh: days, month:, ..) ->
@@ -325,15 +330,22 @@ fn hours(month: balance.Balance) -> String {
   }
   <> ". "
   <> case balance.accumulated(month) {
-    Ok(whole) -> "Acumulado: " <> balance.signed(whole) <> ", sobram "
-    Error(Nil) -> "Sobram, só deste mês, "
+    Ok(whole) -> "Acumulado: " <> balance.signed(whole) <> ", "
+    Error(Nil) -> "Só deste mês: "
   }
-  <> balance.duration(balance.room_left(month))
-  <> " do limite de "
-  <> balance.duration(month.limit_minutes)
-  <> case balance.nearly_full(month) {
-    True -> ". Atenção: mais um mês como este passa do limite"
-    False -> ""
+  <> ptbr.standing(
+    how: balance.standing(month),
+    ceiling: month.limit_minutes,
+    over_by: balance.over_by(month),
+  )
+  <> "."
+  <> case balance.standing(month), balance.nearly_full(month) {
+    // Inside the ceiling, the warning worth giving is the month itself: at
+    // this rate the next one does not fit.
+    balance.Within, True -> " Atenção: mais um mês como este passa do teto"
+    balance.Within, False -> ""
+    // Outside it, saying "one more month like this" is beside the point.
+    _, _ -> ""
   }
   // Days that broke a rule other than the hours: over five consecutive hours, or
   // more compensation in one day than a weekday may carry. Named because the
@@ -384,6 +396,42 @@ fn why(chosen: decision.Decision) -> String {
 }
 
 /// A good thing that still has to be seen.
+/// The evening report, coloured by where the bank stands against the ceiling.
+///
+/// A green light is a message to glance at and forget; a red one is the reason
+/// the coordinator had to say something out loud in the first place, and it
+/// must not arrive looking like the quiet one. So the colour is not decoration
+/// — it is the difference between a report that gets read and one that does
+/// not, and at red it takes the title over entirely.
+fn banked(title: String, body: String, month: balance.Balance) -> Notification {
+  case balance.standing(month) {
+    balance.Within ->
+      Notification(
+        title: title,
+        body: body,
+        priority: "low",
+        tags: "green_circle",
+        action: Error(Nil),
+      )
+    balance.Over ->
+      Notification(
+        title: title,
+        body: body,
+        priority: "default",
+        tags: "yellow_circle",
+        action: Error(Nil),
+      )
+    balance.Alarming ->
+      Notification(
+        title: "Banco de horas no vermelho",
+        body: body,
+        priority: "high",
+        tags: "red_circle",
+        action: Error(Nil),
+      )
+  }
+}
+
 fn loud(title: String, body: String) -> Notification {
   Notification(
     title: title,

@@ -11,6 +11,7 @@
 //// message asking about a missing punch describe the same thing the same way.
 
 import acuttis_point/audit
+import acuttis_point/balance
 import acuttis_point/clock
 import acuttis_point/decision
 import acuttis_point/holiday
@@ -166,6 +167,24 @@ pub fn answer_error(error: question.AnswerError) -> String {
       "essa é a resposta da pergunta de "
       <> clock.date_to_dmy(asked_on)
       <> ", não a de hoje"
+  }
+}
+
+/// How the bank reads against the ceiling, in the words that go with the
+/// colour. The number alone does not say whether it is a problem; the whole
+/// point of the coordinator setting a ceiling is that it now does.
+pub fn standing(
+  how how: balance.Standing,
+  ceiling ceiling: Int,
+  over_by over_by: Int,
+) -> String {
+  let teto = "teto de " <> balance.duration(ceiling)
+  let devolver = " — " <> balance.duration(over_by) <> " para devolver"
+
+  case how {
+    balance.Within -> "dentro do " <> teto
+    balance.Over -> "ACIMA do " <> teto <> devolver
+    balance.Alarming -> "MUITO acima do " <> teto <> devolver
   }
 }
 

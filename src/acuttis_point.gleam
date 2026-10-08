@@ -119,6 +119,7 @@ fn run_normally(
         tolerance_minutes: setup.settings.tolerance_minutes,
         min_lunch_minutes: setup.settings.min_lunch_minutes,
         limit_minutes: setup.settings.compensation_limit_minutes,
+        alarm_minutes: setup.settings.bank_alarm_minutes,
         carried: setup.settings.carried_bank,
         calendar: setup.settings.calendar,
       )

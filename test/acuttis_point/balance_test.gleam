@@ -16,6 +16,11 @@ const tolerance = 10
 
 const min_lunch = 60
 
+/// The ceiling the coordinator set, and double it. Ten and twenty hours.
+const ceiling = 600
+
+const alarm = 1200
+
 /// Rows in the shape the receipt prints them.
 fn rows(entries: List(#(String, List(String)))) -> List(String) {
   list.flat_map(entries, fn(entry) {
@@ -60,7 +65,8 @@ fn observing(
     daily_minutes: daily,
     tolerance_minutes: tolerance,
     min_lunch_minutes: min_lunch,
-    limit_minutes: 2400,
+    limit_minutes: ceiling,
+    alarm_minutes: alarm,
     carried: carried,
     calendar: calendar,
   )
@@ -210,19 +216,21 @@ pub fn a_single_pair_is_not_charged_a_missing_lunch_test() {
   assert banked_minutes == -300
 }
 
-pub fn the_compensation_limit_is_reported_test() {
+pub fn the_ceiling_is_reported_test() {
   let found = month(july, "2026-07-15", "2026-08-01")
 
-  assert found.limit_minutes == 2400
-  // Forty hours minus the 3h23 July moved.
-  assert balance.duration(balance.room_left(found)) == "36h37"
-  // And with no folha behind it, that is only July: the limit is about the whole
-  // bank, and the months before this one are not on this receipt.
+  assert found.limit_minutes == ceiling
+  // Ten hours minus the 3h23 July moved.
+  assert balance.duration(balance.room_left(found)) == "6h37"
+  assert balance.standing(found) == balance.Within
+  // And with no folha behind it, that is only July: the ceiling is about the
+  // whole bank, and the months before this one are not on this receipt.
   assert balance.accumulated(found) == Error(Nil)
 }
 
-// The limit is on the bank, and the bank started before this month. Ten hours
-// carried in and 3h23 moved is 13h23 against the forty, not 3h23.
+// The ceiling is on the bank, and the bank started before this month. Ten
+// hours carried in and 3h23 moved is 13h23 against the ten, not 3h23 — and
+// that is already over.
 pub fn the_bank_is_what_was_carried_in_plus_the_month_test() {
   let found =
     carrying(
@@ -233,7 +241,10 @@ pub fn the_bank_is_what_was_carried_in_plus_the_month_test() {
     )
 
   assert balance.signed(balance.accumulated(found) |> unwrap) == "+13h23"
-  assert balance.duration(balance.room_left(found)) == "26h37"
+  // No room left, and 3h23 to work back off.
+  assert balance.duration(balance.room_left(found)) == "0h00"
+  assert balance.duration(balance.over_by(found)) == "3h23"
+  assert balance.standing(found) == balance.Over
 }
 
 // A folha that closes some other month is a number about other months. Refused
@@ -249,7 +260,7 @@ pub fn a_folha_from_another_month_is_not_added_test() {
     )
 
   assert balance.accumulated(found) == Error(Nil)
-  assert balance.duration(balance.room_left(found)) == "36h37"
+  assert balance.duration(balance.room_left(found)) == "6h37"
 }
 
 // December closes January's previous month, which is the one case a subtraction
@@ -267,29 +278,72 @@ pub fn december_carries_into_january_test() {
   assert balance.signed(balance.accumulated(found) |> unwrap) == "+15h00"
 }
 
-// The warning is the month itself: at this rate, one more like it crosses forty
-// hours. Nothing here stops the hours accumulating, so the only thing worth
+// The warning is the month itself: at this rate, one more like it crosses the
+// ceiling. Nothing here stops the hours accumulating, so the only thing worth
 // doing is saying it while there is still a month to act in.
-pub fn a_month_that_would_cross_the_limit_warns_test() {
+pub fn a_month_that_would_cross_the_ceiling_warns_test() {
   let close =
     carrying(
       july,
       "2026-07-15",
       "2026-08-01",
-      Ok(balance.Carried(2026, 6, 2100)),
+      Ok(balance.Carried(2026, 6, 300)),
     )
-  // 2100 carried plus 3h23 is 38h23, and 1h37 of room against a month of 3h23.
+  // Five hours carried plus 3h23 is 8h23, and 1h37 of room against a month
+  // that moved 3h23. One more like it does not fit.
   assert balance.duration(balance.room_left(close)) == "1h37"
   assert balance.nearly_full(close)
+  assert balance.standing(close) == balance.Within
 
   let far =
     carrying(
       july,
       "2026-07-15",
       "2026-08-01",
-      Ok(balance.Carried(2026, 6, 600)),
+      Ok(balance.Carried(2026, 6, -100)),
     )
   assert !balance.nearly_full(far)
+}
+
+// --- The ceiling the coordinator set ------------------------------------------
+// Ten hours either way, from 2026-10. FAI's own limite de compensação is forty,
+// and it stopped being the number that matters: of two ceilings the tighter one
+// applies, and being inside FAI's rule and outside his is still outside.
+
+pub fn the_standing_is_green_yellow_or_red_test() {
+  let at = fn(carried) {
+    carrying(
+      [],
+      "2026-07-15",
+      "2026-08-01",
+      Ok(balance.Carried(2026, 6, carried)),
+    )
+  }
+
+  // Ten hours exactly is still inside: the rule is a ceiling, not a cliff.
+  assert balance.standing(at(600)) == balance.Within
+  assert balance.standing(at(601)) == balance.Over
+  assert balance.standing(at(1199)) == balance.Over
+  assert balance.standing(at(1200)) == balance.Alarming
+
+  // And it is about distance from zero, not about which side. Owing fifteen
+  // hours is exactly as far outside as being owed them.
+  assert balance.standing(at(-601)) == balance.Over
+  assert balance.standing(at(-1200)) == balance.Alarming
+}
+
+/// September 2026, from FAI's own folha: 14:11 carried in, 13:57 moved, 28:08
+/// accumulated. This is the month the coordinator spoke up about, and it is
+/// what the alarm band was drawn for.
+pub fn the_september_folha_reads_red_test() {
+  let september =
+    carrying([], "2026-10-01", "2026-10-08", Ok(balance.Carried(2026, 9, 1688)))
+
+  assert balance.signed(balance.standing_minutes(september)) == "+28h08"
+  assert balance.standing(september) == balance.Alarming
+  assert balance.duration(balance.room_left(september)) == "0h00"
+  // Eighteen hours and eight minutes have to come back off the bank.
+  assert balance.duration(balance.over_by(september)) == "18h08"
 }
 
 fn unwrap(minutes: Result(Int, Nil)) -> Int {
