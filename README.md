@@ -301,7 +301,28 @@ What none of this can see is Gestão de Pessoas' adjustments, which by their own
 document never appear in the history. A day they have corrected still reads here
 as it was punched, so the number is a floor.
 
-The 40 hour limit, though, is about the whole bank rather than about one month,
+### The ceiling, and the traffic light
+
+FAI's limite de compensação is forty hours either way. That stopped being the
+number that matters: in October 2026 the coordinator asked for **ten**, and
+between two ceilings the tighter one applies — being inside FAI's rule and
+outside his is still being outside.
+
+So the bank is reported as a traffic light, against
+`COMPENSATION_LIMIT_MINUTES` and `BANK_ALARM_MINUTES`:
+
+```
+|bank| <= 10h          green   arrives without a sound
+10h < |bank| < 20h     yellow  and says how much has to come back off
+|bank| >= 20h          red     and takes the title: "Banco de horas no vermelho"
+```
+
+It is distance from zero, not side: owing fifteen hours is exactly as far
+outside as being owed them. The colour is not decoration — it is the difference
+between a report that gets read and one that does not, which is how a number
+reaches 28h08 before anybody says anything.
+
+The ceiling, though, is about the whole bank rather than about one month,
 and the bank started before the receipt does. So the months already closed arrive
 from the folha, as `BANK_CARRIED_MINUTES` and the month it closes:
 
