@@ -108,7 +108,14 @@ stdenvNoCC.mkDerivation {
       --add-flags $out/lib/main.mjs \
       --set PLAYWRIGHT_BROWSERS_PATH "${playwright-driver.browsers}" \
       --set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD 1 \
-      --set PLAYWRIGHT_HOST_PLATFORM_OVERRIDE nixos
+      --set PLAYWRIGHT_HOST_PLATFORM_OVERRIDE nixos \
+      `# Chromium brings its own closure and must not be handed anybody` \
+      `# else's. On 2026-10-08 an alsa-lib from the desktop session, built` \
+      `# against a newer glibc than the browser's own, made every launch die` \
+      `# with "GLIBC_2.43 not found" before the first page. Whether that` \
+      `# variable is set is a property of whoever started the unit, which is` \
+      `# exactly the kind of thing a punch must not depend on.` \
+      --unset LD_LIBRARY_PATH
 
     # The proxy wrapper ships with the program rather than being reimplemented in
     # Nix, so the declarative deployment and the local scripts/ path run the same

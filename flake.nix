@@ -54,6 +54,11 @@
           shellHook = ''
             mkdir -p node_modules
             ln -sfn ${pkgs.playwright-driver} node_modules/playwright-core
+            # The browser brings its own closure. An LD_LIBRARY_PATH inherited
+            # from the desktop session puts libraries built against a newer
+            # glibc in front of it, and every launch dies before the first
+            # page — which is what broke `gleam test` on 2026-10-08.
+            unset LD_LIBRARY_PATH
             echo "acuttis-point: gleam $(gleam --version | cut -d' ' -f2), node $(node --version)"
             echo "playwright-core ${pkgs.playwright-driver.version} with its matching browsers"
           '';
