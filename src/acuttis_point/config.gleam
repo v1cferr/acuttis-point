@@ -51,6 +51,10 @@ pub type Config {
     /// The questions already asked, so a day off is asked about once rather
     /// than at every window of it.
     questions_file: String,
+    /// Where the audit copies the receipt to, so a day that rolls off the end
+    /// of it survives somewhere other than a PDF. Written, never read back by
+    /// anything that decides: see `mirror`.
+    mirror_file: String,
     /// Ask, on a day without expedient, whether the calendar got it right.
     /// Off makes such a day silent again.
     ask_about_calendar: Bool,
@@ -182,6 +186,8 @@ const default_expedient_file = "state/expedient.txt"
 
 const default_questions_file = "state/questions.txt"
 
+const default_mirror_file = "state/receipt.db"
+
 /// Ten hours. FAI's own limite de compensação is forty, and this is not that:
 /// on 2026-10 the coordinator asked for ten either way, and the tighter of two
 /// ceilings is the one that applies.
@@ -243,6 +249,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     lookup_or(env, "LOCAL_HOLIDAYS_FILE", default_local_holidays_file)
   let expedient_file = lookup_or(env, "EXPEDIENT_FILE", default_expedient_file)
   let questions_file = lookup_or(env, "QUESTIONS_FILE", default_questions_file)
+  let mirror_file = lookup_or(env, "MIRROR_FILE", default_mirror_file)
   use ask_about_calendar <- result.try(boolean(env, "ASK_ABOUT_CALENDAR", True))
   let answer = optional(env, "ANSWER_TOKEN")
   use claim_deadline <- result.try(boolean(env, "CLAIM_DEADLINE", False))
@@ -314,6 +321,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     local_holidays_file:,
     expedient_file:,
     questions_file:,
+    mirror_file:,
     ask_about_calendar:,
     answer:,
     dry_run:,

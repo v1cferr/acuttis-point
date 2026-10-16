@@ -13,6 +13,7 @@ import acuttis_point/credentials
 import acuttis_point/decision
 import acuttis_point/discovery
 import acuttis_point/holiday
+import acuttis_point/mirror
 import acuttis_point/notification
 import acuttis_point/pending
 import acuttis_point/playwright
@@ -127,6 +128,10 @@ fn run_normally(
         io.println(timesheet.to_line(inspected))
         io.println(timesheet.to_text(inspected))
         system.set_exit_status(timesheet.exit_code(inspected))
+        // Before the notification and independent of it: what was read is
+        // worth keeping whether or not anybody is told about it, and a mirror
+        // that failed is worth saying out loud.
+        io.println(mirror.to_line(mirrored(setup, inspected)))
         use told <- promise.await(audited(out, inspected))
         // Remembered only once it has actually been said out loud. A day
         // written down as announced but never sent is a day dropped in
@@ -265,6 +270,20 @@ fn worth_asking(
         False -> Ok(reason)
       }
     True, _ -> Error(Nil)
+  }
+}
+
+/// The receipt, written where it will outlive the rolling window Acuttis shows.
+/// Never fatal: this is a copy, and no punch depends on it.
+fn mirrored(setup: Setup, inspected: timesheet.Inspection) -> mirror.Outcome {
+  case inspected {
+    timesheet.Unreadable(..) -> mirror.NothingToCopy
+    timesheet.Audited(audited:, exhausted:, at:, ..) ->
+      mirror.record(
+        path: setup.settings.mirror_file,
+        days: mirror.worth_copying(audited:, exhausted:),
+        at: at,
+      )
   }
 }
 

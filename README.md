@@ -301,6 +301,45 @@ What none of this can see is Gestão de Pessoas' adjustments, which by their own
 document never appear in the history. A day they have corrected still reads here
 as it was punched, so the number is a floor.
 
+### Keeping the receipt after Acuttis forgets it
+
+Acuttis shows a rolling window. On 2026-10-16 it reached back to 30/07, and
+what falls off the end of it survives in exactly one place: the PDF folha
+Gestão de Pessoas issues once a month. Answering "what time did I leave on the
+fifth of May" then means finding a PDF, and it means being able to answer only
+for the months somebody remembered to download.
+
+So the audit writes down what it read, into `state/receipt.db`:
+
+```
+mirror=ok days=52 markings=201 covering=2026-07-30..2026-10-16
+```
+
+```sh
+sqlite3 state/receipt.db "select * from marking where date like '2026-08%'"
+```
+
+SQLite comes from node itself, so this adds no dependency to a flake that pins
+every one of them. It is a copy and never a source — Acuttis decides what is
+true, and where the two disagree this one is wrong. Nothing in the punch path
+reads it and no decision is taken from it, so a mirror that fails costs a line
+in the log and no punch.
+
+Each day the receipt shows is written whole, replacing whatever was held for
+that date, because Gestão de Pessoas corrects days: a time they moved would
+otherwise leave the old one behind as well, and a day with one marking too many
+is the exact shape of the bug this project exists to prevent. Days older than
+the window are left alone, which is the entire point of keeping them.
+
+The oldest day is skipped when the scrolling ran out before the receipt did. A
+page boundary can fall inside a day, and half a day written down is worse than
+a day missing — the half looks whole, and it looks just like the short day that
+means somebody forgot to punch.
+
+What it cannot give back is FAI's arithmetic. Their adjustments never reach the
+history, by their own document, so the markings are recoverable from here and a
+month's closing balance is not.
+
 ### The ceiling, and the traffic light
 
 FAI's limite de compensação is forty hours either way. That stopped being the

@@ -39,6 +39,9 @@
             # scripts/calendar.sh reads the published holidays with these.
             pkgs.curl
             pkgs.jq
+            # For reading state/receipt.db by hand. The program needs no such
+            # thing: SQLite comes from node itself.
+            pkgs.sqlite
           ];
 
           # Playwright must not download its own browsers: the pinned ones from
