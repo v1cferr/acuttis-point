@@ -259,8 +259,12 @@ if ! flock --wait "$LOCK_WAIT_SECONDS" 9; then
   exit 0
 fi
 
-PROXY_PORT="$(free_port)" ||
+# Through a second name, because the message wants the base and the assignment
+# would have overwritten it: `x="$(f)" || die "$x"` reports the empty string it
+# just assigned, so the range read `in ..39` on the one day it mattered.
+chosen_port="$(free_port)" ||
   die "no free loopback port in $PROXY_PORT..$((PROXY_PORT + PORT_RANGE - 1))"
+PROXY_PORT="$chosen_port"
 
 checking=false
 [[ "${1:-}" == "--check" ]] && checking=true
