@@ -26,7 +26,9 @@
           ];
           # The flake's own build is the default, so a host only has to enable
           # the service and point it at a secret.
-          services.acuttis-point.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+          services.acuttis-point.package =
+            lib.mkDefault
+              self.packages.${pkgs.stdenv.hostPlatform.system}.default;
         };
 
       devShells = forAllSystems (pkgs: {

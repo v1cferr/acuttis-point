@@ -20,18 +20,18 @@ let
   # when a punch is due and never on a day the rules would refuse anyway. The
   # sweep rides along on the same timer: it is the same program, and by its hour
   # every window has closed, so it can only report.
-  times =
-    [
-      cfg.schedule.entry
-      cfg.schedule.lunchStart
-      cfg.schedule.lunchEnd
-      cfg.schedule.exit
-    ]
-    ++ lib.optional (cfg.sweepTime != null) cfg.sweepTime;
+  times = [
+    cfg.schedule.entry
+    cfg.schedule.lunchStart
+    cfg.schedule.lunchEnd
+    cfg.schedule.exit
+  ]
+  ++ lib.optional (cfg.sweepTime != null) cfg.sweepTime;
 
   # toIntBase10, not toInt: an HH:MM is always zero padded, and lib.toInt calls
   # "07" ambiguous between octal and decimal and throws rather than choose.
-  minutes = time: lib.toIntBase10 (lib.substring 0 2 time) * 60 + lib.toIntBase10 (lib.substring 3 2 time);
+  minutes =
+    time: lib.toIntBase10 (lib.substring 0 2 time) * 60 + lib.toIntBase10 (lib.substring 3 2 time);
 
   pad = number: lib.fixedWidthNumber 2 number;
 

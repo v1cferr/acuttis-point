@@ -10,7 +10,8 @@ let
 
   # toIntBase10, not toInt: an HH:MM is always zero padded, and lib.toInt calls
   # "07" ambiguous between octal and decimal and throws rather than choose.
-  minutes = time: lib.toIntBase10 (lib.substring 0 2 time) * 60 + lib.toIntBase10 (lib.substring 3 2 time);
+  minutes =
+    time: lib.toIntBase10 (lib.substring 0 2 time) * 60 + lib.toIntBase10 (lib.substring 3 2 time);
 
   dateType = lib.types.strMatching "[0-9]{4}-[0-9]{2}-[0-9]{2}";
 
@@ -345,8 +346,7 @@ in
       {
         assertion =
           let
-            guaranteed =
-              minutes cfg.schedule.lunchEnd - minutes cfg.schedule.lunchStart - cfg.toleranceMinutes;
+            guaranteed = minutes cfg.schedule.lunchEnd - minutes cfg.schedule.lunchStart - cfg.toleranceMinutes;
           in
           guaranteed >= cfg.minLunchMinutes;
         message = ''
@@ -362,8 +362,8 @@ in
           let
           in
           cfg.sweepTime == null
-          || minutes cfg.sweepTime
-             > minutes cfg.schedule.exit + cfg.toleranceMinutes + cfg.jitterSeconds / 60;
+          ||
+            minutes cfg.sweepTime > minutes cfg.schedule.exit + cfg.toleranceMinutes + cfg.jitterSeconds / 60;
         message = ''
           services.acuttis-point.sweepTime (${toString cfg.sweepTime}) is not
           past the last window. The sweep may only report, and it can only be
@@ -382,8 +382,7 @@ in
         '';
       }
       {
-        assertion =
-          cfg.preflightLeadMinutes == 0 || minutes cfg.schedule.entry >= cfg.preflightLeadMinutes;
+        assertion = cfg.preflightLeadMinutes == 0 || minutes cfg.schedule.entry >= cfg.preflightLeadMinutes;
         message = ''
           services.acuttis-point.preflightLeadMinutes
           (${toString cfg.preflightLeadMinutes}) reaches back past midnight from
@@ -396,11 +395,17 @@ in
           let
             worst =
               period:
-              minutes (builtins.elemAt period 1) - minutes (builtins.elemAt period 0)
-              + cfg.toleranceMinutes;
+              minutes (builtins.elemAt period 1) - minutes (builtins.elemAt period 0) + cfg.toleranceMinutes;
           in
-          worst [ cfg.schedule.entry cfg.schedule.lunchStart ] <= cfg.maxConsecutiveMinutes
-          && worst [ cfg.schedule.lunchEnd cfg.schedule.exit ] <= cfg.maxConsecutiveMinutes;
+          worst [
+            cfg.schedule.entry
+            cfg.schedule.lunchStart
+          ] <= cfg.maxConsecutiveMinutes
+          &&
+            worst [
+              cfg.schedule.lunchEnd
+              cfg.schedule.exit
+            ] <= cfg.maxConsecutiveMinutes;
         message = ''
           services.acuttis-point: this schedule could have you working more than
           maxConsecutiveMinutes (${toString cfg.maxConsecutiveMinutes}) straight.
