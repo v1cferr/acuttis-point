@@ -120,7 +120,11 @@ curl --silent --no-buffer --show-error "$command_url/json" |
     # An answered calendar question does not punch. It records that today has
     # expediente after all and then asks about the punch the normal way, so the
     # one thing that authorises a punch is still the one thing that does.
+    # The hosts travel with it, so a tapped punch tries the same machines a
+    # scheduled one would instead of the wrapper's built-in default.
     declare -a how_env=("ACUTTIS_BINARY=$REPO/state/current/bin/acuttis-point")
+    proxy_hosts_env="$(env_value PROXY_SSH_HOST)"
+    [[ -n "$proxy_hosts_env" ]] && how_env+=("PROXY_SSH_HOST=$proxy_hosts_env")
     case "$kind" in
       punch) how_env+=("CLAIM_TOKEN=$token") ;;
       working) how_env+=("ANSWER_TOKEN=$token" "ASK=true") ;;
