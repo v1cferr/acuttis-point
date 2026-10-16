@@ -205,15 +205,24 @@ in
       '';
     };
 
-    proxySshHost = lib.mkOption {
-      type = lib.types.nullOr lib.types.nonEmptyStr;
-      default = null;
-      example = "workstation";
+    proxySshHosts = lib.mkOption {
+      type = lib.types.listOf lib.types.nonEmptyStr;
+      default = [ ];
+      example = [
+        "fai-vm"
+        "workstation"
+      ];
       description = ''
-        Send the browser out through this ssh host, so a punch reaches Acuttis
-        from that machine's address rather than this one's. A punch is a record of
-        having been at work, and the address it arrives from is part of that
-        record.
+        Send the browser out through one of these ssh hosts, so a punch reaches
+        Acuttis from that machine's address rather than this one's. A punch is a
+        record of having been at work, and the address it arrives from is part
+        of that record.
+
+        More than one, in order of preference. They are asked in parallel and
+        answered in the order written here, so the first that is reachable wins
+        among those ahead of it — a host never wins by replying quickest. One
+        host is one point of failure, and in October 2026 it was the one that
+        failed.
 
         A SOCKS tunnel over ssh, opened for the length of one run and closed
         after: no route changes and no system-wide VPN left on. What makes the
@@ -225,14 +234,39 @@ in
         whether or not the tunnel is up, and its gateway does not forward
         arbitrary destinations.
 
-        It fails closed: no tunnel means no punch, rather than a punch quietly
-        sent from the wrong place. Tolerable only because the rehearsal
-        (`preflightLeadMinutes`) uses the same tunnel and so reports a broken path
-        while there is still time to act.
+        It fails closed by default: no host reachable means no punch, rather
+        than a punch quietly sent from the wrong place — see `proxyFallback`.
+        Affordable because there is more than one host to try, and because the
+        rehearsal (`preflightLeadMinutes`) uses the same path and so reports a
+        broken one while there is still time to act.
 
         The user the service runs as needs a passphrase-less key authorised on
-        that host, and read access to it — which the default system user does not
-        have. Set `user` to an account that does.
+        every host, and read access to it — which the default system user does
+        not have. Set `user` to an account that does. That user also has no
+        `~/.ssh/config` under the service's HOME, so a bare nickname will not
+        resolve there: write these as `user@address` unless the account really
+        has the config.
+      '';
+    };
+
+    proxyFallback = lib.mkOption {
+      type = lib.types.enum [
+        "closed"
+        "direct"
+      ];
+      default = "closed";
+      description = ''
+        What to do when no host in `proxySshHosts` answers.
+
+        `closed` refuses the punch and says so on the phone, which is the point
+        of naming the hosts at all. `direct` punches from this machine instead,
+        trading the address for the marking — reasonable when the alternative is
+        an e-mail to Gestão de Pessoas and a time reconstructed from memory, and
+        never silent either way.
+
+        Runs that cannot register anything — the ask, the reminders, the
+        rehearsal, the audit — are not held to this. They have no address worth
+        defending, and refusing them would turn one outage into an alarm per run.
       '';
     };
 
@@ -242,7 +276,7 @@ in
       example = "socks5://127.0.0.1:11080";
       description = ''
         Point the browser at a proxy this module does not manage. Mutually
-        exclusive with `proxySshHost`, which sets it itself.
+        exclusive with `proxySshHosts`, which sets it itself.
       '';
     };
 
@@ -415,10 +449,10 @@ in
         '';
       }
       {
-        assertion = cfg.proxySshHost == null || cfg.proxyServer == null;
+        assertion = cfg.proxySshHosts == [ ] || cfg.proxyServer == null;
         message = ''
-          services.acuttis-point: set proxySshHost or proxyServer, not both.
-          proxySshHost opens a tunnel and points the browser at it, so a
+          services.acuttis-point: set proxySshHosts or proxyServer, not both.
+          proxySshHosts opens a tunnel and points the browser at it, so a
           proxyServer alongside it would be the one silently ignored.
         '';
       }
@@ -463,8 +497,9 @@ in
         PUNCH_LIST_SELECTOR = cfg.punchListSelector;
       }
       // lib.optionalAttrs (cfg.notifyUrl != null) { NOTIFY_URL = cfg.notifyUrl; }
-      // lib.optionalAttrs (cfg.proxySshHost != null) {
-        PROXY_SSH_HOST = cfg.proxySshHost;
+      // lib.optionalAttrs (cfg.proxySshHosts != [ ]) {
+        PROXY_SSH_HOST = lib.concatStringsSep "," cfg.proxySshHosts;
+        PROXY_FALLBACK = cfg.proxyFallback;
       }
       // lib.optionalAttrs (cfg.proxyServer != null) { PROXY_SERVER = cfg.proxyServer; }
       // lib.optionalAttrs cfg.screenshots {
@@ -478,7 +513,7 @@ in
         # The wrapper runs the program; without a tunnel to open there is no
         # reason for the extra process.
         ExecStart =
-          if cfg.proxySshHost == null then
+          if cfg.proxySshHosts == [ ] then
             lib.getExe cfg.package
           else
             "${cfg.package}/bin/acuttis-point-proxied";
