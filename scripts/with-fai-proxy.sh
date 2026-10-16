@@ -27,13 +27,45 @@ set -euo pipefail
 
 readonly REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Reads a key from .env without sourcing it: a .env is not a shell script, and a
+# stray backtick in a password should not become a command. The same reader
+# `listen.sh` and `schedule.sh` use, so all three agree on what the file says.
+env_value() {
+  sed -nE "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=[[:space:]]*//p" \
+    "${ENV_FILE:-$REPO/.env}" 2>/dev/null |
+    tail -1 |
+    sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/' |
+    tr -d '\r'
+}
+
+# One setting, from the environment if it is there and from .env if it is not.
+#
+# The environment wins the same way it does for the program, and an empty one is
+# an answer rather than an absence: `NOTIFY_URL=` silences the phone for a test
+# run and `PROXY_VPN_UNIT=` leaves the VPN alone, neither of which should fall
+# through to a default. Only a name unset in both gets one.
+#
+# Until this existed the wrapper read nothing from .env, so `PROXY_SSH_HOST` in
+# that file was only a flag telling the generators to use the wrapper at all —
+# the host itself always came from the default below, and editing .env moved
+# nothing. A `--check` by hand was testing a different host than production.
+setting() {
+  local name="$1" value
+  if [[ -n "${!name+set}" ]]; then
+    printf '%s' "${!name}"
+    return 0
+  fi
+  value="$(env_value "$name")"
+  printf '%s' "${value:-${2-}}"
+}
+
 # The ssh destination. A Host block in ~/.ssh/config, or user@address.
-PROXY_SSH_HOST="${PROXY_SSH_HOST:-workstation}"
+PROXY_SSH_HOST="$(setting PROXY_SSH_HOST workstation)"
 # Where to start looking for a free loopback port. Loopback only: a SOCKS proxy
 # on a reachable address is an open relay.
-PROXY_PORT="${PROXY_PORT:-11080}"
+PROXY_PORT="$(setting PROXY_PORT 11080)"
 # The VPN unit the host may only be reachable through. Empty never touches it.
-PROXY_VPN_UNIT="${PROXY_VPN_UNIT:-vpn-fai.service}"
+PROXY_VPN_UNIT="$(setting PROXY_VPN_UNIT vpn-fai.service)"
 
 # How many ports to consider before giving up.
 readonly PORT_RANGE=40
@@ -74,7 +106,7 @@ readonly VPN_WAIT_SECONDS=45
 # fail-closed rule cost a punch and it had to be made by hand.
 #
 # It is never silent: falling back says so on the phone, before the punch.
-PROXY_FALLBACK="${PROXY_FALLBACK:-direct}"
+PROXY_FALLBACK="$(setting PROXY_FALLBACK direct)"
 
 readonly BINARY="${ACUTTIS_BINARY:-$REPO/state/current/bin/acuttis-point}"
 
@@ -202,13 +234,8 @@ ensure_reachable() {
 # Say something on the phone from out here, for the one case the program cannot
 # report: it is about to run, or not, in a way the program does not know about.
 warn_phone() {
-  # The environment wins over the file, the same way it does for the program, so
-  # a test run can be silenced with NOTIFY_URL= rather than by editing anything.
-  local url="${NOTIFY_URL-}"
-  if [[ -z "${NOTIFY_URL+set}" ]]; then
-    url="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?NOTIFY_URL[[:space:]]*=[[:space:]]*//p" \
-      "${ENV_FILE:-$REPO/.env}" 2>/dev/null | tail -1)"
-  fi
+  local url
+  url="$(setting NOTIFY_URL)"
   [[ -n "$url" ]] || return 0
   curl --silent --show-error --max-time 15 \
     --header "Title: $1" \
