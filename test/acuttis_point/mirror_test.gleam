@@ -26,32 +26,43 @@ fn receipt() -> audit.Audit {
   audit.Audit(days: days, inconsistent: [])
 }
 
-/// A page boundary can fall inside a day, and the oldest one is where it falls.
-/// Half a day written down is worse than a day missing: the half looks whole,
-/// and it looks exactly like the short day that means somebody forgot to punch.
-pub fn the_oldest_day_is_dropped_when_the_receipt_was_not_exhausted_test() {
-  let kept = mirror.worth_copying(audited: receipt(), exhausted: False)
+/// Acuttis drops rows rather than days, so its retention cuts inside a day as
+/// readily as between two. On 2026-10-16 the mirror stored 03/08 as
+/// `13:53 17:44` while FAI's folha for that Monday read
+/// `08:04 12:43 13:53 17:44`: an afternoon wearing a whole day's clothes, and
+/// one that no later receipt would ever correct.
+pub fn the_oldest_day_is_always_dropped_test() {
+  let kept = mirror.worth_copying(audited: receipt())
   let assert Ok(summary) = mirror.summarise(kept)
 
   assert summary.days == 2
+  assert summary.markings == 5
   assert summary.oldest == on("2026-10-15")
   assert summary.newest == on("2026-10-16")
 }
 
-/// When the receipt itself ran out, the oldest day is a whole day.
-pub fn every_day_is_kept_when_the_receipt_ran_out_test() {
-  let kept = mirror.worth_copying(audited: receipt(), exhausted: True)
+/// Which costs nothing once it runs daily: a day is the oldest for one reading
+/// only, and the reading before that had it in the middle, written down whole.
+pub fn a_day_dropped_today_was_kept_yesterday_test() {
+  let yesterday =
+    audit.Audit(
+      days: [
+        day("2026-10-15", ["08:30", "12:31", "13:59", "17:30"]),
+        day("2026-10-14", ["08:00"]),
+      ],
+      inconsistent: [],
+    )
+  let kept = mirror.worth_copying(audited: yesterday)
   let assert Ok(summary) = mirror.summarise(kept)
 
-  assert summary.days == 3
-  assert summary.markings == 7
-  assert summary.oldest == on("2026-07-30")
-  assert summary.newest == on("2026-10-16")
+  assert summary.days == 1
+  assert summary.newest == on("2026-10-15")
+  assert summary.markings == 4
 }
 
 pub fn an_empty_receipt_copies_nothing_test() {
   let empty = audit.Audit(days: [], inconsistent: [])
-  assert mirror.worth_copying(audited: empty, exhausted: False) == []
+  assert mirror.worth_copying(audited: empty) == []
   assert mirror.summarise([]) == Error(Nil)
   assert mirror.record(path: "gleam.toml/nope.db", days: [], at: moment())
     == mirror.NothingToCopy
@@ -68,11 +79,11 @@ pub fn a_mirror_that_cannot_be_written_is_reported_not_raised_test() {
 }
 
 pub fn the_line_says_what_was_kept_test() {
-  let kept = mirror.worth_copying(audited: receipt(), exhausted: True)
+  let kept = mirror.worth_copying(audited: receipt())
   let assert Ok(summary) = mirror.summarise(kept)
 
   assert mirror.to_line(mirror.Copied(summary))
-    == "mirror=ok days=3 markings=7 covering=2026-07-30..2026-10-16"
+    == "mirror=ok days=2 markings=5 covering=2026-10-15..2026-10-16"
   assert mirror.to_line(mirror.NothingToCopy) == "mirror=skipped"
 }
 

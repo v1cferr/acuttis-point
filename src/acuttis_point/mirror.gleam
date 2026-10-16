@@ -33,20 +33,32 @@ pub type Outcome {
   Failed(detail: String)
 }
 
-/// The days worth copying.
+/// The days worth copying: everything the receipt showed but its oldest day.
 ///
-/// Everything the receipt showed, less the oldest when the scrolling ran out
-/// before the receipt did. A page boundary can fall inside a day, and half a
-/// day written down is worse than a day missing — the half looks whole, and it
-/// looks exactly like the short day that means somebody forgot to punch.
-pub fn worth_copying(
-  audited audited: audit.Audit,
-  exhausted exhausted: Bool,
-) -> List(audit.Day) {
-  case exhausted, list.last(audited.days) {
-    True, _ | _, Error(Nil) -> audited.days
-    False, Ok(oldest) ->
-      list.filter(audited.days, fn(day) { day.date != oldest.date })
+/// Always the oldest, which is not what this first did. It trusted `exhausted`
+/// — the scroll having stopped growing — to mean the oldest day was whole, and
+/// that is a different claim. Acuttis drops rows, not days, so its retention
+/// cuts wherever it likes and the cut lands inside a day as often as between
+/// two.
+///
+/// Measured on 2026-10-16, the first time this ran: it stored 03/08 as
+/// `13:53 17:44` and FAI's folha for the same Monday reads
+/// `08:04 12:43 13:53 17:44`. The morning had rolled off, and what went into
+/// the mirror was an afternoon wearing a whole day's clothes — which is worse
+/// than no day at all, because a short day is also what a forgotten punch
+/// looks like, and this one would never be corrected: tomorrow's receipt does
+/// not reach that far back any more.
+///
+/// Dropping it costs nothing once this runs daily. A day is only ever the
+/// oldest for one reading; the day before that, it sat in the middle of the
+/// receipt and was written down whole. Only the very first run loses one.
+///
+/// `audit.ignoring_the_boundary` has refused to judge that day unconditionally
+/// all along. It was right and this was clever.
+pub fn worth_copying(audited audited: audit.Audit) -> List(audit.Day) {
+  case list.last(audited.days) {
+    Error(Nil) -> []
+    Ok(oldest) -> list.filter(audited.days, fn(day) { day.date != oldest.date })
   }
 }
 

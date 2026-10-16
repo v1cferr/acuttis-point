@@ -278,10 +278,10 @@ fn worth_asking(
 fn mirrored(setup: Setup, inspected: timesheet.Inspection) -> mirror.Outcome {
   case inspected {
     timesheet.Unreadable(..) -> mirror.NothingToCopy
-    timesheet.Audited(audited:, exhausted:, at:, ..) ->
+    timesheet.Audited(audited:, at:, ..) ->
       mirror.record(
         path: setup.settings.mirror_file,
-        days: mirror.worth_copying(audited:, exhausted:),
+        days: mirror.worth_copying(audited:),
         at: at,
       )
   }
