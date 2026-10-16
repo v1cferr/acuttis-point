@@ -424,11 +424,31 @@ tunnel is up or down. Forcing a default route into it does not help either —
 the gateway does not forward arbitrary destinations, and a ping out of `ppp0` to
 `1.1.1.1` gets no answer at all.
 
-So the traffic is not routed there, it originates there. `PROXY_SSH_HOST` names a
-machine inside the university network; `scripts/with-fai-proxy.sh` opens a SOCKS
-tunnel to it over ssh, hands it to Chromium as a proxy, and closes it when the
-run ends. No route changes, no system-wide VPN left on, nothing else on the
-machine pointed at it.
+So the traffic is not routed there, it originates there. `PROXY_SSH_HOST` names
+the machines inside the university network — one, or several separated by
+commas; `scripts/with-fai-proxy.sh` opens a SOCKS tunnel to one of them over
+ssh, hands it to Chromium as a proxy, and closes it when the run ends. No route
+changes, no system-wide VPN left on, nothing else on the machine pointed at it.
+
+More than one, because one host is one point of failure and in October 2026 it
+was the one that failed: `workstation` went unreachable and a morning's entry
+went out from the house instead. They are asked **in parallel** and answered **in
+the order written**, which is two rules doing two different jobs. In parallel
+because a punch window is ten minutes and the deadline run gets the last two of
+them, while a dead host costs a twenty second timeout to establish — asked
+together, that cost is paid once however many hosts there are. In written order
+because which machine a punch leaves from is a setting, not a race: a host wins
+by being first in the list among those that answered, never by replying
+quickest.
+
+A real run stops at the first answer. `--check` waits for all of them, because
+a human asking wants to know what each one did:
+
+```
+with-fai-proxy:   fai-vm: ok
+with-fai-proxy:   workstation: unreachable
+with-fai-proxy: tunnelling through fai-vm via socks5://127.0.0.1:11100
+```
 
 ```sh
 ./scripts/with-fai-proxy.sh --check     # prove the path, run nothing
@@ -440,15 +460,28 @@ an outside service what its address looks like. Chromium gets the proxy at launc
 rather than per context, so hostnames are resolved at the far end too; set on the
 context, the DNS queries would still say where the run is happening.
 
-It fails closed. No tunnel means no punch, rather than a punch quietly sent from
-the wrong place — and that is only tolerable because the rehearsal fifteen
-minutes earlier goes through the same tunnel, so a broken path is something you
-hear about with time to act rather than at the moment it costs a punch.
+It fails closed. No host answering means no punch, rather than a punch quietly
+sent from the wrong place — tolerable because there is more than one host to
+try, and because the rehearsal fifteen minutes earlier goes through the same
+path, so a broken one is something you hear about with time to act rather than
+at the moment it costs a punch. `PROXY_FALLBACK=direct` trades the other way,
+and neither is silent: both say so on the phone before the punch.
 
-The host has to be reachable and accept a passphrase-less key, since a systemd
-unit has no agent and nobody to type at it. If the host only has a route through
+Only the runs that can register something are held to that. An ask, a reminder,
+a rehearsal and an audit all read and none of them punch, so they have no
+address worth defending — and refusing them would turn one outage into an alarm
+per run, five of them per punch slot, four about runs that were never going to
+punch. The rehearsal gets a message of its own instead, because "the next punch
+will be refused" is the warning worth having.
+
+Every host has to be reachable and accept a passphrase-less key, since a systemd
+unit has no agent and nobody to type at it. If they only have a route through
 the VPN, the wrapper brings that unit up, waits for the interface, and stops it
-again afterwards when it was the one that started it.
+again afterwards when it was the one that started it — but never on a run too
+short to wait for it. nxBender needs most of a minute to negotiate, and a run
+that gives up sooner stops it again on the way out; an explicit stop defeats the
+unit's own `Restart=always`, so one impatient run leaves the VPN down for every
+run after it.
 
 ### Scheduling without NixOS
 
