@@ -108,18 +108,22 @@ readonly PROBE_ROUND_GAP=3
 # waiting.
 readonly VPN_WAIT_SECONDS=45
 
-# What to do when there is no tunnel: punch from this machine anyway, or refuse.
+# What to do when no host answers: punch from this machine anyway, or refuse.
 #
-# `direct` by default, and that is a change of mind with a morning behind it. The
-# original reasoning was that a punch from the wrong address is worse than no
-# punch. It is not: a missing punch means an e-mail to Gestão de Pessoas and a
-# time reconstructed from memory, while a punch from home has never been
-# questioned — and the markings already arrive from a phone, a browser and the
-# kiosk in the building, so one more origin is not an anomaly. Today the
-# fail-closed rule cost a punch and it had to be made by hand.
+# `closed`, and that is a change of mind twice over. It began closed; it was
+# opened in August because a missing punch means an e-mail to Gestão de Pessoas
+# and a time reconstructed from memory, while a punch from home had never been
+# questioned. The premise of that argument was a single host being off.
 #
-# It is never silent: falling back says so on the phone, before the punch.
-PROXY_FALLBACK="$(setting PROXY_FALLBACK direct)"
+# With a list, "no tunnel" no longer means a machine someone shut down — it
+# means every FAI host is unreachable, which is an outage and rare enough to be
+# worth a manual punch. It also puts the code back in agreement with the README,
+# the example env and the NixOS module, all three of which never stopped saying
+# the punch fails closed.
+#
+# `direct` is still here for anyone who would rather have the punch than the
+# address. Neither is ever silent: both say so on the phone, before the punch.
+PROXY_FALLBACK="$(setting PROXY_FALLBACK closed)"
 
 readonly BINARY="${ACUTTIS_BINARY:-$REPO/state/current/bin/acuttis-point}"
 
@@ -422,20 +426,43 @@ if ! ensure_reachable; then
     exit 1
   fi
 
-  case "$PROXY_FALLBACK" in
-  direct)
-    # Losing the address is a nuisance; losing the punch is a correction e-mail.
-    say "no host answered (${proxy_hosts[*]}), going out from this machine"
-    if can_punch; then
+  # Only the runs that can register something are held to the policy. An ask, a
+  # reminder, a rehearsal and an audit all read and none of them punch, so they
+  # have no address worth defending — and refusing them would turn one FAI
+  # outage into five urgent pushes per punch slot, since OnFailure fires on
+  # every unit and four of those runs were never going to punch anyway. That is
+  # the same noise `can_punch` was written to prevent, coming back in through
+  # the systemd door.
+  if ! can_punch; then
+    if [[ "${PREFLIGHT:-}" == "true" ]]; then
+      # The rehearsal is the early warning this whole arrangement rests on, so
+      # it speaks in its own words rather than through OnFailure's, which would
+      # claim a punch had failed when none was due.
+      warn_phone "Ensaio sem túnel da FAI" \
+        "Nenhum host respondeu (${proxy_hosts[*]}). O próximo ponto vai ser recusado. Dá tempo de resolver ou de bater à mão."
+    fi
+    say "no host answered and this run registers nothing, so it goes out from here"
+    proxied=false
+  else
+    case "$PROXY_FALLBACK" in
+    closed)
+      warn_phone "Ponto NÃO foi batido: sem túnel da FAI" \
+        "Nenhum host respondeu (${proxy_hosts[*]}). Não vou bater deste IP. Bate à mão agora — a janela fecha em minutos."
+      die "no host answered (${proxy_hosts[*]}), so there is no university address to punch from"
+      ;;
+    direct)
+      # Losing the address is a nuisance; losing the punch is a correction e-mail.
+      say "no host answered (${proxy_hosts[*]}), going out from this machine"
       warn_phone "Sem túnel da FAI" \
         "Nenhum host respondeu (${proxy_hosts[*]}), então este ponto vai sair pelo IP daqui. O ponto acontece; só o endereço fica diferente."
-    fi
-    proxied=false
-    ;;
-  *)
-    die "no host answered (${proxy_hosts[*]}), so there is no university address to punch from"
-    ;;
-  esac
+      proxied=false
+      ;;
+    *)
+      # Silently meaning "closed" is how a typo becomes a policy.
+      die "PROXY_FALLBACK is '$PROXY_FALLBACK'; it is 'closed' or 'direct'"
+      ;;
+    esac
+  fi
 fi
 
 # Without a tunnel there is nothing left to set up, so the run happens here.
