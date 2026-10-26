@@ -55,6 +55,10 @@ pub type Config {
     /// of it survives somewhere other than a PDF. Written, never read back by
     /// anything that decides: see `mirror`.
     mirror_file: String,
+    /// Where the browser keeps the files Acuttis names by their own hash, so a
+    /// run fetches each one once rather than every time: through the university
+    /// tunnel the nine megabyte bundle took longer than a step is allowed.
+    asset_cache_dir: String,
     /// Ask, on a day without expedient, whether the calendar got it right.
     /// Off makes such a day silent again.
     ask_about_calendar: Bool,
@@ -188,6 +192,8 @@ const default_questions_file = "state/questions.txt"
 
 const default_mirror_file = "state/receipt.db"
 
+const default_asset_cache_dir = "state/assets"
+
 /// Ten hours. FAI's own limite de compensação is forty, and this is not that:
 /// on 2026-10 the coordinator asked for ten either way, and the tighter of two
 /// ceilings is the one that applies.
@@ -250,6 +256,8 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   let expedient_file = lookup_or(env, "EXPEDIENT_FILE", default_expedient_file)
   let questions_file = lookup_or(env, "QUESTIONS_FILE", default_questions_file)
   let mirror_file = lookup_or(env, "MIRROR_FILE", default_mirror_file)
+  let asset_cache_dir =
+    lookup_or(env, "ASSET_CACHE_DIR", default_asset_cache_dir)
   use ask_about_calendar <- result.try(boolean(env, "ASK_ABOUT_CALENDAR", True))
   let answer = optional(env, "ANSWER_TOKEN")
   use claim_deadline <- result.try(boolean(env, "CLAIM_DEADLINE", False))
@@ -322,6 +330,7 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
     expedient_file:,
     questions_file:,
     mirror_file:,
+    asset_cache_dir:,
     ask_about_calendar:,
     answer:,
     dry_run:,

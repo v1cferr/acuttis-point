@@ -50,6 +50,8 @@ fn env(base_url: String, overrides: List(#(String, String))) {
     #("LUNCH_END", "14:00"),
     #("EXIT_TIME", "17:30"),
     #("TIME_TOLERANCE_MINUTES", "10"),
+    // Out of the repository's own state, which production uses.
+    #("ASSET_CACHE_DIR", "build/test-assets"),
     // Every selector left at its default, so this exercises what production
   // would actually use.
   ]
@@ -382,6 +384,49 @@ pub fn a_page_that_never_finishes_loading_still_signs_in_test() {
   let #(_, _, outcome) = decided(finished.report)
   assert outcome == report.Confirmed(at: at("08:03"))
   assert fixture.punches() == list.append(yesterday, [today_at("08:03")])
+  promise.resolve(Nil)
+}
+
+// The tunnel on 2026-10-26: the bundle that draws the sign-in form took 39 to
+// 155 seconds through FAI, against a 30 second step, and every run fetched it
+// again because nothing is kept between them. A file named by its own hash
+// never changes, so a run that has fetched it once does not need the network
+// for it again.
+pub fn a_bundle_fetched_once_is_not_fetched_again_test() {
+  let cache = "build/test-assets-withheld"
+  files.remove(cache)
+  use base_url <- promise.await(fixture.start(
+    registered: yesterday,
+    lands_at: today_at("08:03"),
+  ))
+
+  let settings_env =
+    env(base_url, [
+      #("STEP_TIMEOUT_SECONDS", "5"),
+      #("ASSET_CACHE_DIR", cache),
+      #("DRY_RUN", "true"),
+    ])
+  let assert Ok(settings) = config.from_env(settings_env)
+  let assert Ok(secrets) = credentials.from_env(settings_env)
+  let run = fn() {
+    runner.run(
+      settings: settings,
+      secrets: secrets,
+      now: moment("08:03"),
+      port: playwright.port(settings, selectors.from_env(settings_env)),
+    )
+  }
+
+  use first <- promise.await(run())
+  let #(_, _, _) = decided(first.report)
+
+  fixture.withhold_bundle()
+  use second <- promise.await(run())
+  use _ <- promise.await(fixture.stop())
+
+  let #(_, chosen, _) = decided(second.report)
+  assert chosen
+    == decision.Register(punch: punch.Entry, expected_at: at("08:00"))
   promise.resolve(Nil)
 }
 

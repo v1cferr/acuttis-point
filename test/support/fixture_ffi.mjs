@@ -19,12 +19,12 @@ const RECEIPT_ROWS = 20;
 
 let state = null;
 
-const PAGE = String.raw`<!doctype html>
-<html lang="pt-BR">
-<head><meta charset="utf-8"><title>Fixture - Acuttis</title></head>
-<body>
-<div id="root"></div>
-<script>
+// The application ships as one bundle with its content hash in the name, the way
+// Acuttis serves `/static/js/main.6559613c.js` — nine megabytes that took up to
+// 155 seconds through the university tunnel on 2026-10-26.
+const BUNDLE = "/static/js/main.0123abcd.js";
+
+const APP = String.raw`
   const CREDENTIALS = { username: "victor@example.test", password: "s3cret" };
   const root = document.getElementById("root");
 
@@ -148,7 +148,14 @@ const PAGE = String.raw`<!doctype html>
   } else {
     renderSignIn();
   }
-</script>
+`;
+
+const PAGE = String.raw`<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Fixture - Acuttis</title></head>
+<body>
+<div id="root"></div>
+<script src="${BUNDLE}"></script>
 <!--STALL-->
 </body>
 </html>`;
@@ -158,6 +165,7 @@ export function start(existingPunches, landsAt) {
     const punches = Array.from(existingPunches);
     let broken = false;
     let stalled = false;
+    let bundleWithheld = false;
 
     const server = createServer((request, response) => {
       const path = new URL(request.url, "http://localhost").pathname;
@@ -187,6 +195,13 @@ export function start(existingPunches, landsAt) {
       // Never answered: a script the page waits on before it counts as loaded.
       if (path === "/stall.js") return;
 
+      if (path === BUNDLE) {
+        if (bundleWithheld) return;
+        response.writeHead(200, { "content-type": "text/javascript" });
+        response.end(APP);
+        return;
+      }
+
       // Any other path serves the application, the way a single page app does.
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(
@@ -202,6 +217,7 @@ export function start(existingPunches, landsAt) {
         punches,
         breakModal: () => (broken = true),
         stallPageLoad: () => (stalled = true),
+        withholdBundle: () => (bundleWithheld = true),
       };
       resolve(server.address().port);
     });
@@ -219,6 +235,12 @@ export function breakPunchModal() {
 // form on screen, and the navigation still waiting on DOMContentLoaded.
 export function stallPageLoad() {
   if (state?.stallPageLoad) state.stallPageLoad();
+}
+
+// The bundle stops arriving at all, so only a browser that already has it can
+// draw the sign-in form.
+export function withholdBundle() {
+  if (state?.withholdBundle) state.withholdBundle();
 }
 
 // What the fixture holds now, so a test can prove a dry run changed nothing.

@@ -39,6 +39,7 @@ pub fn port(
         settings.timeout_seconds * 1000,
         // Empty means go out from this machine's own address.
         result.unwrap(settings.proxy_server, ""),
+        settings.asset_cache_dir,
       )
       |> promise.map(translate)
     },
@@ -169,6 +170,7 @@ fn ffi_open(
   headless: Bool,
   timeout_ms: Int,
   proxy_server: String,
+  asset_cache_dir: String,
 ) -> Promise(Result(Session, Failure))
 
 /// Empty string on success, the failure detail otherwise.

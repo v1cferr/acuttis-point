@@ -47,6 +47,16 @@ pub fn stall_page_load() -> Nil {
   ffi_stall_page_load()
 }
 
+/// Stop serving the application bundle, so the page renders nothing unless the
+/// browser already holds a copy — the tunnel on 2026-10-26, where the bundle
+/// took longer than a step is allowed.
+pub fn withhold_bundle() -> Nil {
+  ffi_withhold_bundle()
+}
+
+@external(javascript, "./fixture_ffi.mjs", "withholdBundle")
+fn ffi_withhold_bundle() -> Nil
+
 @external(javascript, "./fixture_ffi.mjs", "stallPageLoad")
 fn ffi_stall_page_load() -> Nil
 

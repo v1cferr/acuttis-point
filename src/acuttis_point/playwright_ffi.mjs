@@ -1,6 +1,7 @@
 import { Result$Ok, Result$Error } from "../gleam.mjs";
 import { chmodSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { access, mkdir, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { chromium } from "playwright-core";
 
 // Details go into a log, so they are capped: a Playwright error can otherwise
@@ -34,6 +35,55 @@ const fail = (kind, detail) =>
 const isTimeout = (error) =>
   error?.name === "TimeoutError" || /Timeout .* exceeded/.test(error?.message ?? "");
 
+// A file whose name carries its content hash, the way the build names
+// `/static/js/main.6559613c.js`. New content gets a new name, so a copy of one
+// is the file itself for as long as anything asks for it.
+const HASHED_ASSET = /\/static\/[^?#]*\.[0-9a-f]{8,}(\.chunk)?\.(js|css)(\?.*)?$/;
+
+// Serves hashed files from disk, and keeps those the network delivers.
+//
+// Measured on 2026-10-26: the bundle is nine megabytes, and through the
+// university tunnel it took between 39 and 155 seconds against a 30 second step,
+// while going direct took two. Every run starts with an empty browser, so every
+// run paid it again, and every one of them timed out. Only these files are kept:
+// the sign-in, the receipt and the punch still go to Acuttis, through the proxy,
+// every time.
+//
+// Nothing here can fail a run. A cache that cannot be read or written is a run
+// that fetches from the network, which is what happened before it existed.
+async function cacheHashedAssets(context, cacheDir) {
+  const pathFor = (url) => {
+    const { host, pathname } = new URL(url);
+    return join(cacheDir, host, pathname);
+  };
+
+  await context.route(HASHED_ASSET, async (route) => {
+    const path = pathFor(route.request().url());
+    const cached = await access(path).then(
+      () => true,
+      () => false,
+    );
+    return cached ? route.fulfill({ path }) : route.fallback();
+  });
+
+  context.on("response", async (response) => {
+    try {
+      if (!HASHED_ASSET.test(response.url()) || response.status() !== 200) return;
+      const path = pathFor(response.url());
+      if (await access(path).then(() => true, () => false)) return;
+      // Whole or not at all: a run that times out mid-download must not leave
+      // half a bundle for the next one to serve.
+      const body = await response.body();
+      await mkdir(dirname(path), { recursive: true });
+      const partial = `${path}.${process.pid}.partial`;
+      await writeFile(partial, body);
+      await rename(partial, path);
+    } catch {
+      // The browser closed first, or the disk said no. Next run fetches it.
+    }
+  });
+}
+
 const onSignInPage = (page) => new URL(page.url()).pathname.startsWith("/signin");
 
 // `proxyServer` empty means go out from this machine.
@@ -44,7 +94,7 @@ const onSignInPage = (page) => new URL(page.url()).pathname.startsWith("/signin"
 // on 2026-08-19 a session carried across a frontend change failed three punches
 // and three rehearsals in a row. A sign-in costs seconds; not knowing whether
 // the punch landed costs a conversation with Gestao de Pessoas.
-export async function open(headless, timeoutMs, proxyServer) {
+export async function open(headless, timeoutMs, proxyServer, assetCacheDir) {
   try {
     // The proxy goes on the browser rather than the context, because Chromium
     // resolves DNS through a SOCKS proxy only when it is launched with one:
@@ -59,6 +109,7 @@ export async function open(headless, timeoutMs, proxyServer) {
       timezoneId: "America/Sao_Paulo",
     });
     context.setDefaultTimeout(timeoutMs);
+    await cacheHashedAssets(context, assetCacheDir);
     const page = await context.newPage();
     return ok({ browser, context, page });
   } catch (error) {
