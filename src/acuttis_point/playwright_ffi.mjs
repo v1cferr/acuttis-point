@@ -92,9 +92,16 @@ export async function signIn(
   try {
     await page.goto(`${baseUrl}/dashboard`, { waitUntil: "domcontentloaded" });
   } catch (error) {
-    return isTimeout(error)
-      ? fail("timeout", "loading the dashboard")
-      : fail("unreachable", error.message);
+    if (!isTimeout(error)) return fail("unreachable", error.message);
+    // A page can render and still never count as loaded: from 2026-10-23 17:27
+    // Acuttis showed the sign-in form while something after it never arrived,
+    // and this timeout failed the exit and every run after it. The form is what
+    // the run needs, so the timeout only counts when the form is missing too.
+    const rendered = await page
+      .locator(usernameSelector)
+      .isVisible()
+      .catch(() => false);
+    if (!rendered) return fail("timeout", "loading the dashboard");
   }
 
   // Landing anywhere but /signin would mean a session already exists, and there
@@ -121,7 +128,12 @@ export async function signIn(
   }
 
   try {
-    await page.waitForURL((url) => !url.pathname.startsWith("/signin"));
+    // On the address alone. By default this also waits for the load event, which
+    // a page stuck on a resource never fires, so a sign-in that worked was
+    // reported as rejected: the run on 2026-10-26 07:40 said exactly that.
+    await page.waitForURL((url) => !url.pathname.startsWith("/signin"), {
+      waitUntil: "commit",
+    });
   } catch {
     // Still on the form: the application rejected the credentials, since a
     // network problem would have failed the navigation above instead.

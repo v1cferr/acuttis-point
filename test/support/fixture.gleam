@@ -41,6 +41,15 @@ pub fn break_punch_modal() -> Nil {
   ffi_break_punch_modal()
 }
 
+/// Render the application, then hold back a script after it, so the page shows
+/// the sign-in form and never finishes loading — Acuttis from 2026-10-23 17:27.
+pub fn stall_page_load() -> Nil {
+  ffi_stall_page_load()
+}
+
+@external(javascript, "./fixture_ffi.mjs", "stallPageLoad")
+fn ffi_stall_page_load() -> Nil
+
 @external(javascript, "./fixture_ffi.mjs", "breakPunchModal")
 fn ffi_break_punch_modal() -> Nil
 

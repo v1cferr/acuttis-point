@@ -354,6 +354,37 @@ pub fn a_trigger_that_opens_nothing_is_an_interface_problem_test() {
   promise.resolve(Nil)
 }
 
+// Acuttis from 2026-10-23 17:27: the sign-in form on screen and the page
+// still not "loaded", because something after it never arrived. Waiting for the
+// load event failed the exit, its deadline and every run until Monday, each one
+// reporting a timeout while the form sat there ready to be filled.
+pub fn a_page_that_never_finishes_loading_still_signs_in_test() {
+  use base_url <- promise.await(fixture.start(
+    registered: yesterday,
+    lands_at: today_at("08:03"),
+  ))
+
+  // The shortest step timeout there is, so the stall costs seconds.
+  let settings_env = env(base_url, [#("STEP_TIMEOUT_SECONDS", "5")])
+  let assert Ok(settings) = config.from_env(settings_env)
+  let assert Ok(secrets) = credentials.from_env(settings_env)
+
+  fixture.stall_page_load()
+
+  use finished <- promise.await(runner.run(
+    settings: settings,
+    secrets: secrets,
+    now: moment("08:03"),
+    port: playwright.port(settings, selectors.from_env(settings_env)),
+  ))
+  use _ <- promise.await(fixture.stop())
+
+  let #(_, _, outcome) = decided(finished.report)
+  assert outcome == report.Confirmed(at: at("08:03"))
+  assert fixture.punches() == list.append(yesterday, [today_at("08:03")])
+  promise.resolve(Nil)
+}
+
 pub fn discovery_finds_the_punch_list_selector_test() {
   use base_url <- promise.await(fixture.start(
     registered: list.append(yesterday, [today_at("07:58")]),

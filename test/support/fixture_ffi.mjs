@@ -149,6 +149,7 @@ const PAGE = String.raw`<!doctype html>
     renderSignIn();
   }
 </script>
+<!--STALL-->
 </body>
 </html>`;
 
@@ -156,6 +157,7 @@ export function start(existingPunches, landsAt) {
   return new Promise((resolve) => {
     const punches = Array.from(existingPunches);
     let broken = false;
+    let stalled = false;
 
     const server = createServer((request, response) => {
       const path = new URL(request.url, "http://localhost").pathname;
@@ -182,9 +184,16 @@ export function start(existingPunches, landsAt) {
         return;
       }
 
+      // Never answered: a script the page waits on before it counts as loaded.
+      if (path === "/stall.js") return;
+
       // Any other path serves the application, the way a single page app does.
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      response.end(PAGE);
+      response.end(
+        stalled
+          ? PAGE.replace("<!--STALL-->", '<script src="/stall.js"></script>')
+          : PAGE,
+      );
     });
 
     server.listen(0, "127.0.0.1", () => {
@@ -192,6 +201,7 @@ export function start(existingPunches, landsAt) {
         server,
         punches,
         breakModal: () => (broken = true),
+        stallPageLoad: () => (stalled = true),
       };
       resolve(server.address().port);
     });
@@ -202,6 +212,13 @@ export function start(existingPunches, landsAt) {
 // carried across an Acuttis frontend change failed on 2026-08-19.
 export function breakPunchModal() {
   if (state?.breakModal) state.breakModal();
+}
+
+// The application renders, and one script after it never arrives, so the page
+// never finishes loading. What Acuttis did from 2026-10-23 17:27: the sign-in
+// form on screen, and the navigation still waiting on DOMContentLoaded.
+export function stallPageLoad() {
+  if (state?.stallPageLoad) state.stallPageLoad();
 }
 
 // What the fixture holds now, so a test can prove a dry run changed nothing.
@@ -217,5 +234,7 @@ export function stop() {
     const server = state.server;
     state.server = null;
     server.close(() => resolve(undefined));
+    // A stalled request holds its connection open, and close waits on it.
+    server.closeAllConnections();
   });
 }
