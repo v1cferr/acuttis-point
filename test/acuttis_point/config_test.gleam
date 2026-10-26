@@ -451,3 +451,30 @@ pub fn a_carried_month_has_to_be_a_month_test() {
   assert through("2026-08-31")
     == Error(config.NotAMonth("BANK_CARRIED_THROUGH", "2026-08-31"))
 }
+
+// A rehearsal has no window to miss, so it may wait for what a punch cannot:
+// the first fetch of a new bundle through the tunnel, which fills the cache the
+// punch then reads from.
+pub fn a_rehearsal_waits_longer_than_a_punch_test() {
+  let assert Ok(punching) =
+    config.from_env(env([#("STEP_TIMEOUT_SECONDS", "30")]))
+  let assert Ok(rehearsing) =
+    config.from_env(
+      env([#("STEP_TIMEOUT_SECONDS", "30"), #("PREFLIGHT", "true")]),
+    )
+  assert punching.timeout_seconds == 30
+  assert rehearsing.timeout_seconds == 240
+}
+
+pub fn a_rehearsal_timeout_can_be_set_test() {
+  let assert Ok(rehearsing) =
+    config.from_env(
+      env([
+        #("PREFLIGHT", "true"),
+        #("PREFLIGHT_STEP_TIMEOUT_SECONDS", "90"),
+      ]),
+    )
+  assert rehearsing.timeout_seconds == 90
+  let assert Error(_) =
+    config.from_env(env([#("PREFLIGHT_STEP_TIMEOUT_SECONDS", "4")]))
+}

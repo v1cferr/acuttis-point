@@ -180,6 +180,12 @@ const default_tolerance_minutes = 10
 
 const default_timeout_seconds = 30
 
+/// A rehearsal has no window to miss, so it can wait out what a punch cannot:
+/// the first fetch through the tunnel of a bundle Acuttis has just replaced,
+/// which took up to 155 seconds on 2026-10-26. Once fetched it is cached, and
+/// the punch fifteen minutes later reads it from disk.
+const default_preflight_timeout_seconds = 240
+
 const default_pending_file = "state/pending.json"
 
 const default_announced_file = "state/announced.txt"
@@ -231,10 +237,17 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   ))
   use calendar <- result.try(calendar(env))
   use dry_run <- result.try(boolean(env, "DRY_RUN", False))
-  use timeout_seconds <- result.try(bounded_int(
+  use step_timeout_seconds <- result.try(bounded_int(
     env,
     "STEP_TIMEOUT_SECONDS",
     default_timeout_seconds,
+    5,
+    300,
+  ))
+  use preflight_timeout_seconds <- result.try(bounded_int(
+    env,
+    "PREFLIGHT_STEP_TIMEOUT_SECONDS",
+    default_preflight_timeout_seconds,
     5,
     300,
   ))
@@ -248,6 +261,10 @@ pub fn from_env(env: Dict(String, String)) -> Result(Config, ConfigError) {
   use headless <- result.try(boolean(env, "HEADLESS", True))
   use discover <- result.try(boolean(env, "DISCOVER", False))
   use preflight <- result.try(boolean(env, "PREFLIGHT", False))
+  let timeout_seconds = case preflight {
+    True -> preflight_timeout_seconds
+    False -> step_timeout_seconds
+  }
   use ask <- result.try(boolean(env, "ASK", False))
   use audit <- result.try(boolean(env, "AUDIT", False))
   let announced_file = lookup_or(env, "ANNOUNCED_FILE", default_announced_file)
