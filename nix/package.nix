@@ -52,7 +52,7 @@ let
     dontFixup = true;
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-DXmp6OV9dT3Ws/by2rhW0W8t/LQI1SWSfCIoXt3/hB8=";
+    outputHash = "sha256-vKngRMlxVjtD0Ua1fgpzLebgRg1NFdtUVAy+e8Evw3E=";
   };
 in
 stdenvNoCC.mkDerivation {
