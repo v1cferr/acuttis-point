@@ -71,17 +71,37 @@ pub fn a_holiday_beside_the_weekend_bridges_nothing_test() {
   assert holiday.observance(calendar: fai(), on: on("2026-09-08")) == Error(Nil)
 }
 
-/// One day off cannot join a Wednesday to a weekend, so a midweek holiday
-/// bridges in neither direction.
+/// One day off cannot join a Wednesday to a weekend, so a midweek holiday on
+/// its own bridges in neither direction. 2026-08-12 is a Wednesday with
+/// working days on both sides.
 pub fn a_midweek_holiday_bridges_nothing_test() {
   let calendar =
-    holiday.Calendar(..fai(), local: [
-      #(on("2026-11-04"), "Aniversário de São Carlos"),
+    holiday.Calendar(..fai(), local: [#(on("2026-08-12"), "Recesso")])
+  assert holiday.observance(calendar:, on: on("2026-08-12"))
+    == Ok(holiday.Observed(holiday.Local("Recesso")))
+  assert holiday.observance(calendar:, on: on("2026-08-11")) == Error(Nil)
+  assert holiday.observance(calendar:, on: on("2026-08-13")) == Error(Nil)
+}
+
+/// The day 2026-11-03 was: Finados on the Monday, the São Carlos anniversary
+/// on the Wednesday, and FAI took the Tuesday between them. The automation
+/// offered to register its entry at 07:52. The Thursday after is still a
+/// working day: the Friday stands between it and the weekend.
+pub fn a_day_between_two_holidays_is_an_emenda_test() {
+  let calendar =
+    holiday.Calendar(..fai(), annual: [
+      #(11, 4, "Aniversário de São Carlos"),
     ])
-  assert holiday.observance(calendar:, on: on("2026-11-04"))
-    == Ok(holiday.Observed(holiday.Local("Aniversário de São Carlos")))
-  assert holiday.observance(calendar:, on: on("2026-11-03")) == Error(Nil)
+  assert holiday.observance(calendar:, on: on("2026-11-03"))
+    == Ok(holiday.Bridge(holiday: holiday.AllSouls, date: on("2026-11-02")))
   assert holiday.observance(calendar:, on: on("2026-11-05")) == Error(Nil)
+}
+
+/// A weekend day is never the emenda, even with a holiday beside it: the
+/// Saturday after a Friday holiday was never a working day to take.
+pub fn the_weekend_is_never_an_emenda_test() {
+  // Good Friday 2026 is 2026-04-03.
+  assert holiday.observance(calendar: fai(), on: on("2026-04-04")) == Error(Nil)
 }
 
 /// A local holiday is a holiday: it bridges like any other. 2026-10-15 is a

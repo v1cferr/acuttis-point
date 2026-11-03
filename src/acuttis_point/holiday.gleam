@@ -24,12 +24,14 @@
 ////
 //// The emenda is the third, and it is on no calendar at all. FAI takes the
 //// working day left standing between a holiday and the weekend: a holiday on
-//// Thursday costs the Friday, one on Tuesday costs the Monday. Derived rather
+//// Thursday costs the Friday, one on Tuesday costs the Monday. The same goes
+//// for a working day left standing between two holidays: Finados on a Monday
+//// and a municipal holiday on the Wednesday cost the Tuesday. Derived rather
 //// than declared, for the same reason the national ones are.
 ////
-//// A holiday in the middle of the week bridges nothing — one day off does not
-//// reach the weekend from a Wednesday — and neither does a day merely declared
-//// off. Leave is not a holiday, and nobody emendas a vacation.
+//// A holiday alone in the middle of the week bridges nothing — one day off
+//// does not reach the weekend from a Wednesday — and neither does a day merely
+//// declared off. Leave is not a holiday, and nobody emendas a vacation.
 
 import acuttis_point/clock
 import gleam/bool
@@ -134,17 +136,36 @@ pub fn observance(
   }
 }
 
-/// The emenda. Only a Monday before a Tuesday holiday and a Friday after a
-/// Thursday one: those are the days a single day off joins to the weekend.
+/// The emenda. A working day with a holiday on one side and, on the other, the
+/// weekend or another holiday: those are the days a single day off joins into
+/// one stretch. A Monday before a Tuesday holiday, a Friday after a Thursday
+/// one, and the Tuesday between Finados on a Monday and a municipal holiday on
+/// the Wednesday, which is what 2026-11-03 was.
+///
+/// Between two holidays it names the earlier, the one the stretch opens with.
 fn bridge(calendar: Calendar, date: clock.Date) -> Result(Reason, Nil) {
-  case calendar.bridges {
-    False -> Error(Nil)
-    True ->
-      case clock.weekday(date) {
-        clock.Monday -> bridging(calendar, clock.next_day(date))
-        clock.Friday -> bridging(calendar, clock.previous_day(date))
-        _ -> Error(Nil)
-      }
+  let before = clock.previous_day(date)
+  let after = clock.next_day(date)
+  let weekend_before = is_weekend(before)
+  let weekend_after = is_weekend(after)
+
+  use <- bool.guard(
+    when: !calendar.bridges || is_weekend(date),
+    return: Error(Nil),
+  )
+
+  case bridging(calendar, before), bridging(calendar, after) {
+    Ok(earlier), Ok(_) -> Ok(earlier)
+    Ok(earlier), Error(Nil) if weekend_after -> Ok(earlier)
+    Error(Nil), Ok(later) if weekend_before -> Ok(later)
+    _, _ -> Error(Nil)
+  }
+}
+
+fn is_weekend(date: clock.Date) -> Bool {
+  case clock.weekday(date) {
+    clock.Saturday | clock.Sunday -> True
+    _ -> False
   }
 }
 

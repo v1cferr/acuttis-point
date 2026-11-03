@@ -188,8 +188,10 @@ holiday. A date can still be pinned by hand in `LOCAL_HOLIDAYS`, which wins.
 
 And FAI emendas: the working day left standing between a holiday and the weekend
 goes too. Thursday's holiday costs the Friday, Tuesday's costs the Monday, and a
-Wednesday's costs nothing, because one day off cannot reach a weekend from the
-middle of the week. That rule is `BRIDGE_HOLIDAYS`, and the emenda names the
+working day between two holidays goes as well — Finados on a Monday and the São
+Carlos anniversary on the Wednesday cost the Tuesday. A Wednesday's holiday on its
+own costs nothing, because one day off cannot reach a weekend from the middle of
+the week. That rule is `BRIDGE_HOLIDAYS`, and the emenda names the
 holiday it hangs off:
 
 ```
