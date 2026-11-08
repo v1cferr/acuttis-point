@@ -638,13 +638,13 @@ Setting `NOTIFY_URL` makes each run POST a notification. It is shaped for
 [ntfy](https://ntfy.sh) — title, priority and tags as headers, the record as the
 body — so any endpoint taking a POST works.
 
-| Result | Priority | Message |
-|---|---|---|
-| Registered | default | `ENTRY at 07:57` |
-| Refused, failed | high | the reason, same text as the log |
-| Nothing to do | low, silent | the reason |
-| Rehearsal, ready | default | `Ready to punch LUNCH_START` |
-| Rehearsal, not ready | high | what stopped it, with time left to act |
+| Result               | Priority    | Message                                |
+| -------------------- | ----------- | -------------------------------------- |
+| Registered           | default     | `ENTRY at 07:57`                       |
+| Refused, failed      | high        | the reason, same text as the log       |
+| Nothing to do        | low, silent | the reason                             |
+| Rehearsal, ready     | default     | `Ready to punch LUNCH_START`           |
+| Rehearsal, not ready | high        | what stopped it, with time left to act |
 
 `NOTIFY_ON` decides which runs are worth a buzz: `always`, `action` (the
 default — silent when there was nothing to do) or `problem`.
@@ -696,15 +696,15 @@ nix/     package derivation, systemd service and timer
 
 The modules, roughly outermost first:
 
-| Module | What it holds |
-|---|---|
-| `acuttis_point` | wiring: environment in, run record out |
-| `runner` | the order of a run, and what each failure means |
-| `decision` | the one rule that decides whether to punch |
-| `state` | the day derived from the punches Acuttis shows |
-| `config`, `credentials`, `selectors` | configuration, with credentials kept apart |
-| `clock`, `punch` | validated time, and the four punches of a day |
-| `report` | what a run leaves behind |
-| `discovery` | signs in, describes the page, clicks nothing |
-| `browser` | the port every effect goes through |
-| `playwright`, `acuttis`, `system` | the adapters, and the only impure code |
+| Module                               | What it holds                                   |
+| ------------------------------------ | ----------------------------------------------- |
+| `acuttis_point`                      | wiring: environment in, run record out          |
+| `runner`                             | the order of a run, and what each failure means |
+| `decision`                           | the one rule that decides whether to punch      |
+| `state`                              | the day derived from the punches Acuttis shows  |
+| `config`, `credentials`, `selectors` | configuration, with credentials kept apart      |
+| `clock`, `punch`                     | validated time, and the four punches of a day   |
+| `report`                             | what a run leaves behind                        |
+| `discovery`                          | signs in, describes the page, clicks nothing    |
+| `browser`                            | the port every effect goes through              |
+| `playwright`, `acuttis`, `system`    | the adapters, and the only impure code          |

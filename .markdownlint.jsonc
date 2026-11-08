@@ -1,0 +1,8 @@
+{
+  // Tables are aligned: every row opens and closes with a pipe, and the pipes line up with the
+  // header's, padded with spaces. markdownlint has no autofix for MD060.
+  "MD060": { "style": "aligned" },
+  "MD055": { "style": "leading_and_trailing" },
+  // The VS Code extension's own default, kept: a config file would otherwise turn line length on.
+  "MD013": false
+}
