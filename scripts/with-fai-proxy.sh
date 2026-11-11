@@ -284,6 +284,42 @@ tunnel_exists() {
   [[ -n "$(ip -o link show type ppp 2>/dev/null)" ]]
 }
 
+# The address ssh would dial for a host, when ~/.ssh/config gives a literal one.
+# Empty for a name that still needs resolving: nothing here asks DNS, which may
+# itself only answer through the tunnel.
+host_address() {
+  local address
+  address="$(ssh -G "$1" 2>/dev/null | awk '$1 == "hostname" { print $2; exit }')"
+  [[ "$address" =~ ^[0-9]+(\.[0-9]+){3}$ ]] && printf '%s' "$address"
+  return 0
+}
+
+# Whether a connection begun now would leave through the tunnel.
+#
+# The interface existing is not that. pppd creates ppp0, then negotiates its
+# address, and only then does nxBender add the university's routes: about eight
+# tenths of a second on 2026-11-06 and six on 2026-11-09. An ssh started inside
+# that gap picks the home route and the home source address, keeps both for the
+# life of the socket, and spends the whole ConnectTimeout on a SYN nobody will
+# answer. Both days the three second poll landed in the gap, the one round the
+# deadline run had room for was that one, and it refused to punch with a tunnel
+# that had been working for twenty-four seconds.
+#
+# So the kernel is asked where a packet to each host would go. A host with no
+# literal address cannot be asked about, and then the interface is all there is
+# to go by, which is what this used to do for every host.
+tunnel_ready() {
+  local host address known=false
+  tunnel_exists || return 1
+  for host in "${proxy_hosts[@]}"; do
+    address="$(host_address "$host")"
+    [[ -n "$address" ]] || continue
+    known=true
+    [[ "$(ip -o route get "$address" 2>/dev/null)" == *" dev ppp"* ]] && return 0
+  done
+  [[ "$known" == false ]]
+}
+
 # The VPN is a property of the attempt rather than of a host: every destination
 # lives on the same university network, so one route serves all of them. It is
 # brought up at most once, only when nothing answered without it, and undone
@@ -300,7 +336,7 @@ ensure_reachable() {
   # loop below. With no interface there is nothing to retry through: measured on
   # 2026-08-24, these hosts are not reachable without the VPN at all, and asking
   # anyway spends a timeout proving what the absence of the interface said.
-  if tunnel_exists || [[ -z "$PROXY_VPN_UNIT" ]]; then
+  if tunnel_ready || [[ -z "$PROXY_VPN_UNIT" ]]; then
     probe_hosts && return 0
   fi
 
@@ -326,11 +362,6 @@ ensure_reachable() {
     systemctl start "$PROXY_VPN_UNIT" 2>/dev/null ||
       die "could not start $PROXY_VPN_UNIT"
     vpn_started_here=true
-    # The unit goes active before the tunnel exists, so what is waited on is the
-    # interface, not the unit — and never past the budget.
-    if ((give_up > SECONDS + VPN_WAIT_SECONDS)); then
-      give_up=$((SECONDS + VPN_WAIT_SECONDS))
-    fi
   fi
   # An already active unit used to end the attempt right here, on the grounds
   # that the VPN was not what was missing. True, and not the same as nothing
@@ -338,13 +369,26 @@ ensure_reachable() {
   # and this gave up in zero seconds. With a list it is worse — it would walk
   # away from a host that was answering.
 
+  # The unit goes active before the tunnel exists, so what is waited on is the
+  # tunnel, not the unit. That wait has its own limit, and it is only a limit on
+  # the wait: it used to shorten the whole attempt, so a VPN that came up at
+  # twenty-four seconds left room for exactly one round, and one that came up at
+  # twenty-six left room for none. The portal fails its first handshake often
+  # enough (ten runs on 2026-11-09) and the unit's restart costs twenty-one
+  # seconds each time, so that edge was being walked daily.
+  local tunnel_give_up=$((SECONDS + VPN_WAIT_SECONDS))
+
   # A round is only begun when there is room to finish one, so the ceiling is
   # the budget rather than the budget plus a timeout.
   while ((SECONDS + SSH_CONNECT_TIMEOUT <= give_up)); do
-    if tunnel_exists && probe_hosts; then
-      return 0
+    if tunnel_ready; then
+      probe_hosts && return 0
+      sleep "$PROBE_ROUND_GAP"
+    else
+      ((SECONDS < tunnel_give_up)) || return 1
+      # Short, because the moment the routes land is the moment worth catching.
+      sleep 1
     fi
-    sleep "$PROBE_ROUND_GAP"
   done
   return 1
 }
